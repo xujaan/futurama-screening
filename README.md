@@ -172,8 +172,9 @@ Bash
 crontab -e
 
 # Add the following line at the bottom of the file:
+```
 0 0 * * * /opt/bybit_bot_v8/deploy/restart_bot.sh
-
+```
 ## 📊 Logic Overview
 
 ### Scoring System
