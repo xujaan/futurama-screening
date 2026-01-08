@@ -139,7 +139,8 @@ Create a `config.json` file in the root directory. This controls your strategy, 
         "ascending_triangle": "Long",
         "bullish_rectangle": "Long"
     }
-}```
+}
+```
 
 ## 🚀 Deployment (Linux/Systemd)
 
