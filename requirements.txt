@@ -1,0 +1,10 @@
+ccxt
+pandas
+pandas_ta
+numpy
+schedule
+requests
+mplfinance
+psycopg2-binary
+scipy
+python-dotenv

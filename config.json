@@ -1,0 +1,56 @@
+{
+    "api": {
+        "discord_webhook": "YOUR_WEBHOOK_URL",
+        "discord_live_webhook": "YOUR_LIVE_WEBHOOK_URL",
+        "discord_dashboard_webhook": "YOUR_DASHBOARD_WEBHOOK_URL",
+        "bybit_key": "YOUR_BYBIT_KEY",
+        "bybit_secret": "YOUR_BYBIT_SECRET",
+        "discord_server_id": "YOUR_SERVER_ID",
+        "discord_role_id": "YOUR_ROLE_ID"
+    },
+    "database": {
+        "host": "localhost",
+        "database": "bybit_bot",
+        "user": "postgres",
+        "password": "YOUR_DB_PASSWORD",
+        "port": "5432"
+    },
+    "system": {
+        "timezone": "Asia/Jakarta",
+        "max_threads": 20,
+        "check_interval_hours": 1,
+        "timeframes": ["1h", "4h", "1d", "1w"]
+    },
+    "setup": {
+        "fib_entry_start": 0.5,
+        "fib_entry_end": 0.618,
+        "fib_sl": 0.27,
+        "fib_tp_1": 1.0,
+        "fib_tp_2": 1.618,
+        "fib_tp_3": 2.618
+    },
+    "strategy": {
+        "min_tech_score": 5,
+        "min_quant_score": 3,
+        "risk_reward_min": 3.0
+    },
+    "indicators": {
+        "min_rvol": 2.0
+    },
+    "patterns": {
+        "double_top": true,
+        "double_bottom": true,
+        "bull_flag": true,
+        "bear_flag": true,
+        "ascending_triangle": true,
+        "bullish_rectangle": true
+    },
+    "pattern_signals": {
+        "double_bottom": "Long",
+        "double_top": "Short",
+        "bull_flag": "Long",
+        "bear_flag": "Short",
+        "ascending_triangle": "Long",
+        "bullish_rectangle": "Long"
+    }
+}
