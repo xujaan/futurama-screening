@@ -58,7 +58,11 @@ def send_alert(data):
     # Text Blocks
     tech_block = f"**Pattern:** {data['Pattern']}\n**Trend:** {trend_icon} {data['Side']} Trend\n**MACD:** {data.get('MACD_Signal', 'Expand')} 🟢"
     deriv_block = f"**Fund:** {fund_emoji} {fund_txt} `{fund_val*100:.3f}%` | Basis: `{data['Basis']*100:.3f}%`\n**Flow:** Accumulating 🟢"
-    quant_block = f"**RVOL:** `{rvol:.1f}x` ({rvol_txt})\n**OBI:** `0.31`"
+    quant_block = (
+        f"**RVOL:** `{rvol:.1f}x` ({rvol_txt})\n"
+        f"**Z-Score:** `{data['Z_Score']:.2f}σ`\n"
+        f"**OBI:** `0.31`"
+    )
     
     # NEW: SMC Text
     smc_txt = "None"
