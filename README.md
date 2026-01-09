@@ -1,4 +1,4 @@
-# Bybit Quant Trading Bot v8.1
+# Bybit Quant Trading Bot v8.1.2
 
 An institutional-grade, modular cryptocurrency trading bot designed for the Bybit Exchange. This bot leverages a hybrid analysis engine combining geometric pattern recognition, Smart Money Concepts (SMC), quantitative metrics (RVOL, OBI, VPIN), and derivative market data (CVD, Open Interest, Funding Rates) to identify high-probability setups.
 
