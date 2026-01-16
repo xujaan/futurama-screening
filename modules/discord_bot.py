@@ -81,6 +81,7 @@ def send_alert(data):
 
         # SMC Analysis Text
         tech_reasons_str = str(data.get('Tech_Reasons', ''))
+        smc_reasons_str = str(data.get('SMC_Reasons', ''))
         smc_txt = "None"
         if "Bullish OB" in tech_reasons_str: smc_txt = "🟢 Demand Zone (Order Block)"
         elif "Bearish OB" in tech_reasons_str: smc_txt = "🔴 Supply Zone (Order Block)"

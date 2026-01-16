@@ -144,8 +144,7 @@ def scan():
             and mkts[s]['base'] not in STABLECOINS # <--- STABLECOIN FILTER
         ]
         
-        random.shuffle(syms)
-        syms = syms[:400] 
+        random.shuffle(syms) 
         
         print(f"🔍 Scanning {len(syms)} valid pairs (Stables removed)...")
 
