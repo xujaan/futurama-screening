@@ -36,10 +36,8 @@ def generate_chart(df, symbol, pattern, timeframe):
         max_idx = argrelextrema(plot_df['high'].values, np.greater_equal, order=n)[0]
 
         # 2. Extract Data
-        # We use the INDEX values directly (Timestamps)
         peak_dates = plot_df.index[max_idx]
         peak_vals = plot_df['high'].iloc[max_idx].values
-        
         valley_dates = plot_df.index[min_idx]
         valley_vals = plot_df['low'].iloc[min_idx].values
 
@@ -49,14 +47,10 @@ def generate_chart(df, symbol, pattern, timeframe):
         # Helper to safely add lines
         def add_line(dates, vals, color):
             if len(dates) >= 2:
-                # Convert Timestamp to string to avoid object type issues
-                # mplfinance handles string dates very well
                 d1 = str(dates[-2])
                 p1 = float(vals[-2])
                 d2 = str(dates[-1])
                 p2 = float(vals[-1])
-                
-                # Append segment: [(Date1, Price1), (Date2, Price2)]
                 lines.append([(d1, p1), (d2, p2)])
                 line_colors.append(color)
 
@@ -67,7 +61,7 @@ def generate_chart(df, symbol, pattern, timeframe):
         if pattern in ['descending_triangle', 'bullish_rectangle', 'double_bottom', 'bull_flag', 'ascending_triangle']:
             add_line(valley_dates, valley_vals, 'green') # Support
 
-        # 4. Setup Chart
+        # 4. Setup Chart Panels & Ratios
         mc = mpf.make_marketcolors(up='#2ebd85', down='#f6465d', edge='inherit', wick='inherit', volume='in')
         s  = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc)
         
@@ -76,11 +70,19 @@ def generate_chart(df, symbol, pattern, timeframe):
             apds.append(mpf.make_addplot(plot_df['EMA_Fast'], color='cyan', width=1))
         
         has_macd = 'MACD_h' in plot_df.columns
+        
+        # --- CRITICAL FIX FOR PANEL COUNT ---
         if has_macd:
+            # Panel 0: Price, Panel 1: MACD, Panel 2: Volume
             colors = ['#2ebd85' if v >= 0 else '#f6465d' for v in plot_df['MACD_h']]
             apds.append(mpf.make_addplot(plot_df['MACD_h'], type='bar', panel=1, color=colors, ylabel='MACD'))
-        
-        ratios = (3, 1, 1) if has_macd else (3, 1)
+            
+            ratios = (3, 1, 1)
+            vol_panel = 2  # Explicitly push Volume to Panel 2
+        else:
+            # Panel 0: Price, Panel 1: Volume
+            ratios = (3, 1)
+            vol_panel = 1  # Volume is the next available panel
 
         kwargs = dict(
             type='candle', style=s, addplot=apds, 
@@ -88,10 +90,10 @@ def generate_chart(df, symbol, pattern, timeframe):
             figsize=(12, 8),
             panel_ratios=ratios,
             volume=True,
+            volume_panel=vol_panel, # <--- Fix applied here
             savefig=dict(fname=filename, dpi=100, bbox_inches='tight')
         )
         
-        # USE 'alines' INSTEAD OF 'tlines'
         if lines:
             kwargs['alines'] = dict(alines=lines, colors=line_colors, linewidths=1.5, alpha=0.7)
             
@@ -100,7 +102,7 @@ def generate_chart(df, symbol, pattern, timeframe):
     except Exception as e: 
         print(f"Chart Error: {e}")
         return None
-        
+
 
 def send_alert(data):
     webhook = CONFIG['api']['discord_webhook']
