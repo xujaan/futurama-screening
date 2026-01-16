@@ -24,40 +24,41 @@ def format_price(value):
 def generate_chart(df, symbol, pattern, timeframe):
     filename = f"chart_{symbol.replace('/','')}_{timeframe}.png"
     try:
-        # Create a copy to avoid SettingWithCopy warnings on the main df
+        # Create a copy and ensure datetime index
         plot_df = df.iloc[-100:].copy()
-
-        # FIX: Ensure Index is Datetime
         if 'timestamp' in plot_df.columns:
             plot_df.set_index('timestamp', inplace=True)
-        
-        # Force conversion to DatetimeIndex (in case it's a string or object)
         plot_df.index = pd.to_datetime(plot_df.index)
 
-        # 1. Find Peaks/Valleys using numeric arrays
-        n = 3 
+        # 1. Find Peaks/Valleys
+        n = 3
         min_idx = argrelextrema(plot_df['low'].values, np.less_equal, order=n)[0]
         max_idx = argrelextrema(plot_df['high'].values, np.greater_equal, order=n)[0]
 
-        # 2. Extract Data & Convert to Native Python Types
-        # Now .to_pydatetime() will work because index is definitely DatetimeIndex
-        peak_dates = plot_df.index[max_idx].to_pydatetime()
+        # 2. Extract Data
+        # We use the INDEX values directly (Timestamps)
+        peak_dates = plot_df.index[max_idx]
         peak_vals = plot_df['high'].iloc[max_idx].values
         
-        valley_dates = plot_df.index[min_idx].to_pydatetime()
+        valley_dates = plot_df.index[min_idx]
         valley_vals = plot_df['low'].iloc[min_idx].values
 
-        tlines = []
-        tl_colors = []
+        lines = []
+        line_colors = []
 
         # Helper to safely add lines
         def add_line(dates, vals, color):
             if len(dates) >= 2:
-                # Explicitly cast prices to standard float
-                p1 = (dates[-2], float(vals[-2]))
-                p2 = (dates[-1], float(vals[-1]))
-                tlines.append([p1, p2])
-                tl_colors.append(color)
+                # Convert Timestamp to string to avoid object type issues
+                # mplfinance handles string dates very well
+                d1 = str(dates[-2])
+                p1 = float(vals[-2])
+                d2 = str(dates[-1])
+                p2 = float(vals[-1])
+                
+                # Append segment: [(Date1, Price1), (Date2, Price2)]
+                lines.append([(d1, p1), (d2, p2)])
+                line_colors.append(color)
 
         # 3. Define Lines Based on Pattern
         if pattern in ['ascending_triangle', 'bullish_rectangle', 'double_top', 'bear_flag', 'descending_triangle']:
@@ -66,7 +67,7 @@ def generate_chart(df, symbol, pattern, timeframe):
         if pattern in ['descending_triangle', 'bullish_rectangle', 'double_bottom', 'bull_flag', 'ascending_triangle']:
             add_line(valley_dates, valley_vals, 'green') # Support
 
-        # 4. Setup Chart Style
+        # 4. Setup Chart
         mc = mpf.make_marketcolors(up='#2ebd85', down='#f6465d', edge='inherit', wick='inherit', volume='in')
         s  = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc)
         
@@ -90,14 +91,16 @@ def generate_chart(df, symbol, pattern, timeframe):
             savefig=dict(fname=filename, dpi=100, bbox_inches='tight')
         )
         
-        if tlines:
-            kwargs['tlines'] = dict(tlines=tlines, colors=tl_colors, linewidths=1.5, alpha=0.7)
+        # USE 'alines' INSTEAD OF 'tlines'
+        if lines:
+            kwargs['alines'] = dict(alines=lines, colors=line_colors, linewidths=1.5, alpha=0.7)
             
         mpf.plot(plot_df, **kwargs)
         return filename
     except Exception as e: 
         print(f"Chart Error: {e}")
         return None
+        
 
 def send_alert(data):
     webhook = CONFIG['api']['discord_webhook']
