@@ -24,15 +24,23 @@ def format_price(value):
 def generate_chart(df, symbol, pattern, timeframe):
     filename = f"chart_{symbol.replace('/','')}_{timeframe}.png"
     try:
+        # Create a copy to avoid SettingWithCopy warnings on the main df
         plot_df = df.iloc[-100:].copy()
 
-        # 1. Find Peaks/Valleys
+        # FIX: Ensure Index is Datetime
+        if 'timestamp' in plot_df.columns:
+            plot_df.set_index('timestamp', inplace=True)
+        
+        # Force conversion to DatetimeIndex (in case it's a string or object)
+        plot_df.index = pd.to_datetime(plot_df.index)
+
+        # 1. Find Peaks/Valleys using numeric arrays
         n = 3 
         min_idx = argrelextrema(plot_df['low'].values, np.less_equal, order=n)[0]
         max_idx = argrelextrema(plot_df['high'].values, np.greater_equal, order=n)[0]
 
         # 2. Extract Data & Convert to Native Python Types
-        # Convert index to pydatetime to ensure mplfinance accepts it
+        # Now .to_pydatetime() will work because index is definitely DatetimeIndex
         peak_dates = plot_df.index[max_idx].to_pydatetime()
         peak_vals = plot_df['high'].iloc[max_idx].values
         
@@ -58,7 +66,7 @@ def generate_chart(df, symbol, pattern, timeframe):
         if pattern in ['descending_triangle', 'bullish_rectangle', 'double_bottom', 'bull_flag', 'ascending_triangle']:
             add_line(valley_dates, valley_vals, 'green') # Support
 
-        # 4. Setup Chart
+        # 4. Setup Chart Style
         mc = mpf.make_marketcolors(up='#2ebd85', down='#f6465d', edge='inherit', wick='inherit', volume='in')
         s  = mpf.make_mpf_style(base_mpf_style='nightclouds', marketcolors=mc)
         
