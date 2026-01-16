@@ -257,7 +257,7 @@ def ingest_fresh_signals():
             FROM trades t
             LEFT JOIN active_trades a ON t.id = a.signal_id
             WHERE t.status = 'Waiting Entry'
-            AND t.created_at >= NOW() - INTERVAL '12 hours'
+            AND t.created_at >= NOW() - INTERVAL '24 hours'
             AND a.id IS NULL
         """
         cur.execute(query)
