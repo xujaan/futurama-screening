@@ -58,12 +58,19 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals):
         
         # 3. SMC Analysis (Optional Filter)
         valid_smc, smc_score, smc_reasons = analyze_smc(df, side)
+        if smc_score < CONFIG['strategy'].get('min_smc_score', 0):
+            # print(f"❌ {symbol} rejected: SMC Score too low ({smc_score})")
+            return None
         # if not valid_smc: return None  # Un-comment for strict SMC
 
         # 4. Quant & Deriv Metrics
         df, basis, z_score, zeta_score, obi, quant_score, quant_reasons = calculate_metrics(df, ticker_info)
         valid_deriv, deriv_score, deriv_reasons = analyze_derivatives(df, ticker_info, side)
         if not valid_deriv: return None
+
+        if deriv_score < CONFIG['strategy'].get('min_deriv_score', 0):
+            # print(f"❌ {symbol} rejected: Deriv Score too low ({deriv_score})")
+            return None
         
         # 5. Scores & Bias
         div_score, div_msg = detect_divergence(df)
