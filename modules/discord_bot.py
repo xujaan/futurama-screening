@@ -144,87 +144,111 @@ def send_scan_completion(signal_count, duration, btc_bias):
 
 
 def send_alert(data):
+    print(f"🚀 Attempting to send alert for {data['Symbol']}...") # DEBUG
     webhook = CONFIG['api']['discord_webhook']
-    if not webhook: return
+    if not webhook: 
+        print("❌ Error: No Discord Webhook configured!")
+        return False
 
     symbol = data['Symbol']
-    image_path = generate_chart(data['df'], symbol, data['Pattern'], data['Timeframe'])
     
-    is_long = data['Side'] == 'Long'
-    color = 0x00ff00 if is_long else 0xff0000
-    emoji = "🚀" if is_long else "🔻"
-    trend_icon = "🟢" if is_long else "🔴"
-    
-    fund_val = data['df']['funding'].iloc[-1] if 'funding' in data['df'] else 0
-    fund_emoji = "🔴" if abs(fund_val) > 0.01 else "🟢"
-    fund_txt = "Hot" if abs(fund_val) > 0.01 else "Cool"
-    
-    rvol = data['df']['RVOL'].iloc[-1]
-    rvol_txt = "⚡ Explosive" if rvol > 3.0 else ("🔥 Strong" if rvol > 2.0 else "🌊 Normal")
-    
-    # OBI Formatting
-    obi_val = data['OBI']
-    obi_icon = "🟢" if obi_val > 0 else "🔴"
-    # Text Blocks
-    tech_block = f"**Pattern:** {data['Pattern']}\n**Trend:** {trend_icon} {data['Side']} Trend\n**MACD:** {data.get('MACD_Signal', 'Expand')} 🟢"
-    deriv_block = f"**Fund:** {fund_emoji} {fund_txt} `{fund_val*100:.3f}%` | Basis: `{data['Basis']*100:.3f}%`\n**Flow:** Accumulating 🟢"
-    quant_block = (
-        f"**RVOL:** `{rvol:.1f}x` ({rvol_txt})\n"
-        f"**Z-Score:** `{data['Z_Score']:.2f}σ`\n"
-        f"**ζ-Field:** `{data['Zeta_Score']:.1f}` / 100\n"
-        f"**OBI:** `{obi_val:.2f}` {obi_icon}"    
-    )
-    
-    # NEW: SMC Text
-    smc_txt = "None"
-    if "In Bullish OB" in data['Tech_Reasons']: smc_txt = "🟢 Demand Zone"
-    elif "In Bearish OB" in data['Tech_Reasons']: smc_txt = "🔴 Supply Zone"
-    elif "Higher Low" in data['Tech_Reasons']: smc_txt = "📈 Higher Low (Dip)"
-    elif "Lower High" in data['Tech_Reasons']: smc_txt = "📉 Lower High (Rally)"
-    
-    explanations = f"**Tech:** {data.get('Tech_Reasons', '-')}\n**Quant:** {data.get('Quant_Reasons', '-')}\n**Deriv:** {data.get('Deriv_Reasons', '-')}"
+    # 1. GENERATE CHART
+    try:
+        image_path = generate_chart(data['df'], symbol, data['Pattern'], data['Timeframe'])
+        if not image_path:
+            print("⚠️ Chart generation returned None. Sending text-only alert.")
+    except Exception as e:
+        print(f"❌ Chart Generation CRASH: {e}")
+        image_path = None
 
-    embed = {
-        "title": f"{emoji} SIGNAL: {symbol} ({data['Pattern']})",
-        "description": f"**{data['Side']}** | **{data['Timeframe']}**",
-        "color": color,
-        "fields": [
-            {"name": "🎯 Entry", "value": f"`{format_price(data['Entry'])}`", "inline": True},
-            {"name": "🛑 Stop", "value": f"`{format_price(data['SL'])}`", "inline": True},
-            {"name": "💰 Rewards", "value": f"RR (TP3): **1:{data.get('RR', 0.0)}**", "inline": True},
-            {"name": "🏁 Targets", "value": f"TP1: `{format_price(data['TP1'])}`\nTP2: `{format_price(data['TP2'])}`\nTP3: `{format_price(data['TP3'])}`", "inline": False},
-            {"name": "📊 Technicals & SMC", "value": f"{tech_block}\n**SMC:** {smc_txt}", "inline": False},
-            {"name": "⛽ Derivatives", "value": deriv_block, "inline": False},
-            {"name": "🧮 Quant", "value": quant_block, "inline": False},
-            {"name": "🏆 Scores", "value": f"Tech: `{data['Tech_Score']}` | Quant: `{data['Quant_Score']}` | Deriv: `{data['Deriv_Score']}`", "inline": False},
-            {"name": "📝 Analysis", "value": explanations, "inline": False},
-            {"name": "🧠 Context", "value": f"Bias: **{data['BTC_Bias']}**", "inline": False}
-        ],
-        "footer": {"text": f"V8 Bot | {get_now().strftime('%Y-%m-%d %H:%M:%S')}"}
-    }
+    # 2. PREPARE DATA
+    try:
+        is_long = data['Side'] == 'Long'
+        color = 0x00ff00 if is_long else 0xff0000
+        emoji = "🚀" if is_long else "🔻"
+        
+        # Safe extraction of values
+        rvol = data['df']['RVOL'].iloc[-1]
+        rvol_txt = "⚡ Explosive" if rvol > 3.0 else ("🔥 Strong" if rvol > 2.0 else "🌊 Normal")
+        
+        # OBI Formatting
+        obi_val = data.get('OBI', 0.0)
+        obi_icon = "🟢" if obi_val > 0 else "🔴"
+        
+        # Formatting Blocks
+        tech_block = f"**Pattern:** {data['Pattern']}\n**Trend:** {emoji} {data['Side']} Trend"
+        quant_block = (
+            f"**RVOL:** `{rvol:.1f}x` ({rvol_txt})\n"
+            f"**Z-Score:** `{data.get('Z_Score', 0):.2f}σ`\n"
+            f"**ζ-Field:** `{data.get('Zeta_Score', 0):.1f}` / 100\n"
+            f"**OBI:** `{obi_val:.2f}` {obi_icon}"
+        )
+        
+        smc_txt = "None"
+        if "In Bullish OB" in data['Tech_Reasons']: smc_txt = "🟢 Demand Zone"
+        elif "In Bearish OB" in data['Tech_Reasons']: smc_txt = "🔴 Supply Zone"
+        elif "Higher Low" in data['Tech_Reasons']: smc_txt = "📈 Higher Low (Dip)"
+        elif "Lower High" in data['Tech_Reasons']: smc_txt = "📉 Lower High (Rally)"
 
+        embed = {
+            "title": f"{emoji} SIGNAL: {symbol} ({data['Pattern']})",
+            "description": f"**{data['Side']}** | **{data['Timeframe']}**",
+            "color": color,
+            "fields": [
+                {"name": "🎯 Entry", "value": f"`{format_price(data['Entry'])}`", "inline": True},
+                {"name": "🛑 Stop", "value": f"`{format_price(data['SL'])}`", "inline": True},
+                {"name": "💰 Rewards", "value": f"RR: **1:{data.get('RR', 0.0)}**", "inline": True},
+                {"name": "🏁 Targets", "value": f"TP1: `{format_price(data['TP1'])}`\nTP2: `{format_price(data['TP2'])}`\nTP3: `{format_price(data['TP3'])}`", "inline": False},
+                {"name": "📊 Technicals", "value": f"{tech_block}\n**SMC:** {smc_txt}", "inline": False},
+                {"name": "🧮 Quant Analysis", "value": quant_block, "inline": False},
+                {"name": "📝 Reasoning", "value": f"Tech: {data.get('Tech_Reasons','-')}\nQuant: {data.get('Quant_Reasons','-')}", "inline": False},
+                {"name": "🧠 Context", "value": f"Bias: **{data['BTC_Bias']}**", "inline": False}
+            ],
+            "footer": {"text": f"V8 Bot | {get_now().strftime('%H:%M:%S')}"}
+        }
+    except Exception as e:
+        print(f"❌ Data Preparation Error: {e}")
+        return False
+
+    # 3. SEND TO DISCORD
     try:
         payload = {"content": "", "embeds": [embed]}
+        
         if image_path:
             with open(image_path, 'rb') as f:
                 r = requests.post(webhook, data={'payload_json': json.dumps(payload)}, files={'file': f}, params={"wait": "true"})
         else:
             r = requests.post(webhook, json=payload, params={"wait": "true"})
             
-        msg_id, ch_id = (r.json().get('id'), r.json().get('channel_id')) if r.status_code in [200, 201] else (None, None)
+        if r.status_code not in [200, 201, 204]:
+            print(f"❌ Discord API Error {r.status_code}: {r.text}")
+            return False
+            
+        print(f"✅ Alert Sent Successfully! ID: {r.json().get('id')}")
         
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("""
-            INSERT INTO trades (symbol, side, timeframe, pattern, entry_price, sl_price, tp1, tp2, tp3, reason, 
-            tech_score, quant_score, deriv_score, smc_score, basis, btc_bias, message_id, channel_id, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Waiting Entry')
-        """, (symbol, data['Side'], data['Timeframe'], data['Pattern'], data['Entry'], data['SL'], data['TP1'], 
-              data['TP2'], data['TP3'], data['Reason'], data['Tech_Score'], data['Quant_Score'], data['Deriv_Score'], 
-              data['SMC_Score'], data['Basis'], data['BTC_Bias'], msg_id, ch_id))
-        conn.commit()
-        release_conn(conn)
-    except Exception as e: print(e)
+        # 4. SAVE TO DB
+        try:
+            msg_id = r.json().get('id')
+            ch_id = r.json().get('channel_id')
+            conn = get_conn()
+            cur = conn.cursor()
+            cur.execute("""
+                INSERT INTO trades (symbol, side, timeframe, pattern, entry_price, sl_price, tp1, tp2, tp3, reason, 
+                tech_score, quant_score, deriv_score, smc_score, basis, btc_bias, message_id, channel_id, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'Waiting Entry')
+            """, (symbol, data['Side'], data['Timeframe'], data['Pattern'], data['Entry'], data['SL'], data['TP1'], 
+                  data['TP2'], data['TP3'], data['Reason'], data['Tech_Score'], data['Quant_Score'], data['Deriv_Score'], 
+                  data['SMC_Score'], data['Basis'], data['BTC_Bias'], msg_id, ch_id))
+            conn.commit()
+            release_conn(conn)
+        except Exception as db_err:
+            print(f"⚠️ DB Insert Error (Alert was sent though): {db_err}")
+
+        return True
+
+    except Exception as e: 
+        print(f"❌ Network/Send Error: {e}")
+        return False
     finally:
         if image_path and os.path.exists(image_path): os.remove(image_path)
 
