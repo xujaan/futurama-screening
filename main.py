@@ -102,7 +102,32 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals): # Accepts 4 arg
         
         df['funding'] = float(ticker_info.get('info', {}).get('fundingRate', 0))
         seen_symbols.append(symbol)
-        
+        data = {
+            "Symbol": symbol, 
+            "Side": side, 
+            "Timeframe": timeframe, 
+            "Pattern": pattern,
+            "Entry": float(entry),       # <--- Cast to float
+            "SL": float(sl),             # <--- Cast to float
+            "TP1": float(tp1),           # <--- Cast to float
+            "TP2": float(tp2),           # <--- Cast to float
+            "TP3": float(tp3),           # <--- Cast to float
+            "RR": float(rr),             # <--- Cast to float
+            "Tech_Score": int(tech_score),   # <--- Cast to int
+            "Quant_Score": int(quant_score), # <--- Cast to int
+            "Deriv_Score": int(deriv_score), # <--- Cast to int
+            "SMC_Score": int(smc_score),     # <--- Cast to int
+            "Basis": float(basis),           # <--- Cast to float
+            "Z_Score": float(z_score),       # <--- Cast to float
+            "Zeta_Score": float(zeta_score), # <--- Cast to float
+            "OBI": float(obi),               # <--- Cast to float
+            "BTC_Bias": btc_bias, 
+            "Reason": pattern,
+            "Tech_Reasons": ", ".join(tech_reasons),
+            "Quant_Reasons": ", ".join(quant_reasons),
+            "Deriv_Reasons": ", ".join(deriv_reasons), 
+            "df": df
+        }
         return {
             "Symbol": symbol, 
             "Side": side, 
@@ -129,6 +154,7 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals): # Accepts 4 arg
             "Deriv_Reasons": ", ".join(deriv_reasons), 
             "df": df
         }
+        print(data)
     except: return None
 
 
