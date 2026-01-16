@@ -14,7 +14,7 @@ from modules.quant import calculate_metrics, check_fakeout
 from modules.derivatives import analyze_derivatives
 from modules.smc import analyze_smc
 from modules.patterns import find_pattern
-from modules.discord_bot import send_alert, update_status_dashboard, run_fast_update
+from modules.discord_bot import send_alert, update_status_dashboard, run_fast_update, send_scan_completion # <--- Import new function
 
 exchange = ccxt.bybit({'apiKey': CONFIG['api']['bybit_key'], 'secret': CONFIG['api']['bybit_secret'], 'options': {'defaultType': 'swap'}})
 
@@ -129,22 +129,45 @@ def analyze_ticker(symbol, timeframe, btc_bias, seen_symbols):
         }
     except: return None
 
+
 def scan():
+    start_time = time.time()
     print(f"\n[{pd.Timestamp.now()}] 🔭 Scanning... Mode: {os.getenv('BOT_ENV', 'PROD')}")
+    
     btc_bias = get_btc_bias()
     print(f"📊 BTC Bias: {btc_bias}")
+    
     seen_symbols = []
+    signal_count = 0 # Track signals found
     
-    mkts = exchange.load_markets()
-    syms = [s for s in mkts if mkts[s].get('swap') and mkts[s]['quote'] == 'USDT' and mkts[s].get('active')][:400]
-    random.shuffle(syms)
-    
-    for tf in reversed(CONFIG['system']['timeframes']):
-        with ThreadPoolExecutor(max_workers=CONFIG['system']['max_threads']) as ex:
-            futures = [ex.submit(analyze_ticker, s, tf, btc_bias, seen_symbols) for s in syms]
-            for f in as_completed(futures):
-                res = f.result()
-                if res: send_alert(res)
+    try:
+        mkts = exchange.load_markets()
+        # Filter for USDT Swaps
+        syms = [s for s in mkts if mkts[s].get('swap') and mkts[s]['quote'] == 'USDT' and mkts[s].get('active')]
+        
+        # Limit to 400 random pairs to respect API limits if needed, or scan all
+        random.shuffle(syms)
+        syms = syms[:400] 
+        
+        for tf in reversed(CONFIG['system']['timeframes']):
+            with ThreadPoolExecutor(max_workers=CONFIG['system']['max_threads']) as ex:
+                futures = [ex.submit(analyze_ticker, s, tf, btc_bias, seen_symbols) for s in syms]
+                for f in as_completed(futures):
+                    res = f.result()
+                    if res: 
+                        send_alert(res)
+                        signal_count += 1
+                        
+    except Exception as e:
+        print(f"Global Scan Error: {e}")
+        
+    finally:
+        # Calculate duration
+        duration = time.time() - start_time
+        print(f"✅ Scan Finished in {duration:.2f}s. Signals: {signal_count}")
+        
+        # Send completion alert to Discord
+        send_scan_completion(signal_count, duration, btc_bias)
 
 if __name__ == "__main__":
     init_db()

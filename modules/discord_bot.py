@@ -104,6 +104,45 @@ def generate_chart(df, symbol, pattern, timeframe):
         return None
 
 
+def send_scan_completion(signal_count, duration, btc_bias):
+    """
+    Sends a summary message when the scan finishes.
+    Mentions the configured role ID.
+    """
+    webhook = CONFIG['api']['discord_dashboard_webhook'] # Use dashboard webhook for logs
+    if not webhook: return
+    
+    role_id = CONFIG['api'].get('discord_role_id')
+    mention = f"<@&{role_id}>" if role_id else ""
+    
+    # Determine color based on Bias
+    color = 0x808080 # Grey
+    if "Bullish" in btc_bias: color = 0x00ff00
+    elif "Bearish" in btc_bias: color = 0xff0000
+    
+    embed = {
+        "title": "🔭 Scan Cycle Complete",
+        "description": f"**Analysis finished for all timeframes.**",
+        "color": color,
+        "fields": [
+            {"name": "⏱️ Duration", "value": f"`{duration:.2f}s`", "inline": True},
+            {"name": "📶 Signals Found", "value": f"`{signal_count}`", "inline": True},
+            {"name": "📊 Market Bias", "value": f"**{btc_bias}**", "inline": True}
+        ],
+        "footer": {"text": f"V8 Bot | {get_now().strftime('%H:%M:%S')}"}
+    }
+    
+    try:
+        # Send the embed + mention string
+        payload = {
+            "content": f"{mention} Scan finished.", 
+            "embeds": [embed]
+        }
+        requests.post(webhook, json=payload)
+    except Exception as e:
+        print(f"Scan Completion Alert Error: {e}")
+
+
 def send_alert(data):
     webhook = CONFIG['api']['discord_webhook']
     if not webhook: return
