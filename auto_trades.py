@@ -309,44 +309,83 @@ def ingest_fresh_signals():
         release_conn(conn)
 
 # ---------------------------------------------------------
-# 🚀 ORDER EXECUTION (Polling)
+# 🚀 SMART EXECUTION (With Debugging)
 # ---------------------------------------------------------
 def execute_pending_orders():
-    """Posts PENDING limit orders to Exchange."""
     conn = get_conn()
     try:
         cur = conn.cursor()
+        # Fetch pending orders
         cur.execute("SELECT id, symbol, side, entry_price, sl_price, quantity, leverage FROM active_trades WHERE status = 'PENDING'")
         orders = cur.fetchall()
         
+        if not orders:
+            # print("💤 No pending orders to execute.") # Uncomment to verify loop is running
+            return
+
+        logger.info(f"🔎 Found {len(orders)} PENDING orders. Processing...")
+
         for order in orders:
             oid, sym, side, entry, sl, qty, lev = order
-            
+            logger.info(f"👉 Processing {sym}: {side} | Qty: {qty} | Entry: {entry}")
+
             try:
                 # 1. Set Leverage
-                try: exchange.set_leverage(int(lev), sym)
-                except: pass
+                try: 
+                    exchange.set_leverage(int(lev), sym)
+                    logger.info(f"   ✅ Leverage set to {lev}x for {sym}")
+                except Exception as e: 
+                    # Leverage often fails if already set, which is fine.
+                    logger.warning(f"   ⚠️ Leverage set skipped/failed: {e}")
 
-                # 2. Place Limit Entry
-                # We attach SL immediately for safety
+                # 2. Check LIVE Price
+                ticker = exchange.fetch_ticker(sym)
+                current_price = float(ticker['last'])
+                entry = float(entry)
+                
+                # Logic: Is the price better than our entry?
+                is_better_price = (side == 'Long' and current_price <= entry) or \
+                                  (side == 'Short' and current_price >= entry)
+
                 type_side = 'buy' if side == 'Long' else 'sell'
                 params = {'stopLoss': float(sl)}
                 
-                # Precision handling
+                # Precision Handling (Crucial for execution success)
                 qty = float(exchange.amount_to_precision(sym, qty))
                 
-                res = exchange.create_order(sym, 'limit', type_side, float(entry), qty, params)
+                logger.info(f"   📊 Price Check: Market ${current_price} vs Entry ${entry}")
+
+                res = None
                 
-                cur.execute("UPDATE active_trades SET order_id = %s, status = 'OPEN' WHERE id = %s", (res['id'], oid))
-                logger.info(f"🚀 Entry Placed: {sym} (ID: {res['id']})")
+                # 3. Execution Decision
+                if is_better_price:
+                    logger.info(f"   ⚡ ACTION: MARKET ORDER (Price is better)")
+                    res = exchange.create_order(sym, 'market', type_side, qty, None, params)
+                else:
+                    logger.info(f"   ⏳ ACTION: LIMIT ORDER (Waiting for price)")
+                    res = exchange.create_order(sym, 'limit', type_side, entry, qty, params)
                 
+                # 4. Verification & DB Update
+                if res and 'id' in res:
+                    order_id = res['id']
+                    order_status = res['status'] # 'open', 'closed' (filled)
+                    
+                    cur.execute("UPDATE active_trades SET order_id = %s, status = 'OPEN' WHERE id = %s", (order_id, oid))
+                    conn.commit()
+                    
+                    logger.info(f"   ✅ SUCCESS: Order Placed! ID: {order_id} | Status: {order_status}")
+                    logger.info(f"   📝 DB Updated for Trade ID {oid}")
+                else:
+                    logger.error(f"   ❌ FAILED: API returned no ID. Response: {res}")
+
             except Exception as e:
-                logger.error(f"❌ Execution Failed {sym}: {e}")
-                cur.execute("UPDATE active_trades SET status = 'FAILED' WHERE id = %s", (oid,))
+                logger.error(f"   ❌ CRITICAL EXECUTION ERROR {sym}: {e}")
+                # Optional: Mark failed so it doesn't retry infinitely?
+                # cur.execute("UPDATE active_trades SET status = 'FAILED' WHERE id = %s", (oid,))
+                # conn.commit()
                 
-        conn.commit()
     except Exception as e:
-        logger.error(f"Exec Loop Error: {e}")
+        logger.error(f"Global Exec Loop Error: {e}")
     finally:
         release_conn(conn)
 
