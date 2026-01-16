@@ -96,7 +96,7 @@ def analyze_ticker(symbol, timeframe, btc_bias, seen_symbols):
             tp1, tp2, tp3 = swing_high - rng, swing_high - (rng*1.618), swing_high - (rng*2.618)
             
         rr = calculate_rr(entry, sl, tp3)
-            if rr < CONFIG['strategy'].get('risk_reward_min', 3.0): return None
+        if rr < CONFIG['strategy'].get('risk_reward_min', 3.0): return None
         
         df['funding'] = float(ticker_info.get('info', {}).get('fundingRate', 0))
         seen_symbols.append(symbol)
