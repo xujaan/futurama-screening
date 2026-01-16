@@ -82,9 +82,9 @@ def analyze_ticker(symbol, timeframe, btc_bias, seen_symbols):
 
         # Setup
         s = CONFIG['setup']
-            swing_high = df['high'].iloc[-100:].max()
-            swing_low = df['low'].iloc[-100:].min()
-            rng = swing_high - swing_low
+        swing_high = df['high'].iloc[-100:].max()
+        swing_low = df['low'].iloc[-100:].min()
+        rng = swing_high - swing_low
         
         if side == 'Long':
             entry = (swing_high - (rng * s['fib_entry_start']) + swing_high - (rng * s['fib_entry_end'])) / 2
