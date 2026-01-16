@@ -152,7 +152,7 @@ def scan():
         syms = [s for s in mkts if mkts[s].get('swap') and mkts[s]['quote'] == 'USDT' and mkts[s].get('active')]
         
         random.shuffle(syms)
-        syms = syms[:400] 
+        syms = syms 
         
         for tf in reversed(CONFIG['system']['timeframes']):
             with ThreadPoolExecutor(max_workers=CONFIG['system']['max_threads']) as ex:
