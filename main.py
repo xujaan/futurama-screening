@@ -147,7 +147,7 @@ def scan():
         
         # Limit to 400 random pairs to respect API limits if needed, or scan all
         random.shuffle(syms)
-        syms = syms[:400] 
+        syms = syms 
         
         for tf in reversed(CONFIG['system']['timeframes']):
             with ThreadPoolExecutor(max_workers=CONFIG['system']['max_threads']) as ex:

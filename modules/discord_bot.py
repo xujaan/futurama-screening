@@ -109,7 +109,7 @@ def send_scan_completion(signal_count, duration, btc_bias):
     Sends a summary message when the scan finishes.
     Mentions the configured role ID.
     """
-    webhook = CONFIG['api']['discord_dashboard_webhook'] # Use dashboard webhook for logs
+    webhook = CONFIG['api']['discord_webhook'] # Use dashboard webhook for logs
     if not webhook: return
     
     role_id = CONFIG['api'].get('discord_role_id')
