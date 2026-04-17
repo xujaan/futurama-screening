@@ -4,9 +4,8 @@ matplotlib.use('Agg')
 import mplfinance as mpf
 from scipy.signal import argrelextrema
 from datetime import datetime
-from psycopg2.extras import RealDictCursor
 from modules.config_loader import CONFIG
-from modules.database import get_conn, release_conn
+from modules.database import get_conn, release_conn, get_dict_cursor
 
 def get_now(): return datetime.now(pytz.timezone(CONFIG['system']['timezone']))
 def format_price(value): return "{:.8f}".format(float(value)).rstrip('0').rstrip('.') if float(value) < 1 else "{:.2f}".format(float(value))
@@ -258,7 +257,7 @@ def update_status_dashboard():
     conn = get_conn()
     lines = []
     try:
-        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur = get_dict_cursor(conn)
         cur.execute("SELECT symbol, side, status, entry_hit_at, created_at FROM trades WHERE status NOT LIKE '%Closed%' ORDER BY created_at DESC")
         trades = cur.fetchall()
         lines = [f"`{(t['entry_hit_at'] or t['created_at']).strftime('%H:%M')}` {'🟢' if 'Active' in t['status'] else '⏳'} **{t['symbol']}** ({t['side']}): {t['status']}" for t in trades]
@@ -318,7 +317,7 @@ def run_fast_update(exchange=None):
         try:
             import modules.execution as execution
             conn = get_conn()
-            cur = conn.cursor(cursor_factory=RealDictCursor)
+            cur = get_dict_cursor(conn)
             cur.execute("SELECT * FROM trades WHERE status = 'Waiting Entry'")
             waiting_trades = cur.fetchall()
             

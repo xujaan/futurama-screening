@@ -44,8 +44,7 @@ class TelegramListener:
             time.sleep(2)
             
     def handle_callback(self, callback_query):
-        import psycopg2.extras
-        from modules.database import get_conn, release_conn, get_risk_config
+        from modules.database import get_conn, release_conn, get_risk_config, get_dict_cursor
         callback_id = callback_query.get('id')
         data = callback_query.get('data', '')
         msg = callback_query.get('message', {})
@@ -59,7 +58,7 @@ class TelegramListener:
             else:
                 conn = get_conn()
                 try:
-                    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                    cur = get_dict_cursor(conn)
                     cur.execute("SELECT * FROM trades WHERE symbol = %s AND status = 'Waiting Entry' ORDER BY created_at DESC LIMIT 1", (symbol,))
                     trade = cur.fetchone()
                     
