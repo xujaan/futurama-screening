@@ -57,7 +57,26 @@ def execute_entry(exchange, res):
     try:
         order = exchange.create_order(symbol, 'limit', side, qty_str, price_str, params)
         print(f"✅ LIMIT Order Entry Sukses! ID: {order.get('id')}")
-        return True
+        
+        mmr = 0.005
+        if side == 'buy':
+            liq_price = entry_price * (1 - 1/leverage + mmr)
+        else:
+            liq_price = entry_price * (1 + 1/leverage - mmr)
+            
+        return {
+            "success": True,
+            "order_id": order.get('id', 'N/A'),
+            "symbol": symbol,
+            "side": side.upper(),
+            "margin": margin_per_trade,
+            "total_cap": total_cap,
+            "leverage": leverage,
+            "qty": qty,
+            "entry_price": entry_price,
+            "sl": sl,
+            "liq_price": liq_price
+        }
     except Exception as e:
         print(f"❌ Gagal mengeksekusi order {symbol}: {e}")
         return False
@@ -81,3 +100,26 @@ def place_layered_tps(exchange, symbol, pos_side, tp1, tp2, tp3, total_qty):
             print(f"   ✅ TP Limit Order di harga {price_str} (Qty: {qty}) terbawa")
         except Exception as e:
             print(f"   ❌ Gagal pasang TP di {price_str}: {e}")
+
+def close_position(exchange, symbol):
+    try:
+        positions = exchange.fetch_positions([symbol])
+        pos = next((p for p in positions if float(p.get('contracts', 0)) > 0), None)
+        
+        if not pos:
+            return False, f"No active position found for {symbol}"
+            
+        pos_side = pos['side'].lower()
+        qty = float(pos['contracts'])
+        target_side = 'sell' if pos_side == 'long' else 'buy'
+        qty_str = exchange.amount_to_precision(symbol, qty)
+        
+        print(f"🛑 Closing Position {symbol} | Market {target_side} | Qty: {qty_str}")
+        exchange.create_order(symbol, 'market', target_side, qty_str, params={'reduceOnly': True})
+        exchange.cancel_all_orders(symbol)
+        
+        return True, f"Closed {symbol} successfully."
+    except Exception as e:
+        err_msg = f"Failed to close {symbol}: {e}"
+        print(f"❌ {err_msg}")
+        return False, err_msg

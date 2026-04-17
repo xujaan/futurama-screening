@@ -79,9 +79,22 @@ class TelegramListener:
                         except Exception as e: print("Gagal fetch pos limit:", e)
                         
                         if active_pos_count < risk_cfg.get('max_concurrent_trades', 2):
-                            success = execute_entry(self.exchange, res)
-                            if success:
-                                reply = f"✅ Trade LIMIT order for {symbol} placed successfully!"
+                            result = execute_entry(self.exchange, res)
+                            if result:
+                                def fmt_price(p): return f"{p:.8f}".rstrip('0').rstrip('.') if p < 1 else f"{p:.4f}"
+                                reply = (
+                                    f"✅ <b>TRADE LIMIT SUCCESS!</b>\n\n"
+                                    f"🪙 <b>Symbol:</b> <code>{result['symbol']}</code>\n"
+                                    f"🧭 <b>Mode:</b> <code>{result['side']}</code>\n"
+                                    f"🎯 <b>Entry:</b> <code>{fmt_price(result['entry_price'])}</code>\n"
+                                    f"📦 <b>Quantity:</b> <code>{result['qty']}</code>\n"
+                                    f"🔩 <b>Leverage:</b> <code>{result['leverage']}x</code>\n"
+                                    f"💵 <b>Margin Used:</b> <code>${result['margin']:.2f}</code>\n"
+                                    f"💰 <b>Total Capital:</b> <code>${result['total_cap']:.2f}</code>\n"
+                                    f"🛑 <b>Stop Loss:</b> <code>{fmt_price(result['sl'])}</code>\n"
+                                    f"🩸 <b>Est. Liq Price:</b> <code>{fmt_price(result['liq_price'])}</code>\n"
+                                    f"🛒 <b>Order ID:</b> <code>{result['order_id']}</code>"
+                                )
                             else:
                                 reply = f"❌ Failed to place order for {symbol}."
                         else:
@@ -92,6 +105,29 @@ class TelegramListener:
                     reply = f"❌ DB Error: {e}"
                 finally:
                     release_conn(conn)
+                    
+        elif data.startswith('endtrade_'):
+            symbol = data.split('_', 1)[1]
+            if not self.exchange:
+                reply = "❌ Exchange is not initialized."
+            else:
+                from modules.execution import close_position
+                from modules.database import get_conn, release_conn, get_dict_cursor
+                success, msg = close_position(self.exchange, symbol)
+                if success:
+                    reply = f"✅ {msg}"
+                    # Update DB
+                    conn = get_conn()
+                    try:
+                        cur = get_dict_cursor(conn)
+                        cur.execute("UPDATE trades SET status = 'Closed (Manual)' WHERE symbol = %s AND status NOT LIKE '%Closed%'", (symbol,))
+                        conn.commit()
+                    except Exception as e:
+                        print(f"Error updating DB on manual close: {e}")
+                    finally:
+                        release_conn(conn)
+                else:
+                    reply = f"❌ {msg}"
                     
         if reply and chat_id:
             url = f"https://api.telegram.org/bot{self.token}/sendMessage"
@@ -132,6 +168,46 @@ class TelegramListener:
             reply += f"🤖 Auto Trade: **{'ON' if cfg['auto_trade'] else 'OFF'}**\n"
             reply += f"💰 Modal Total: **${cfg['total_trading_capital_usdt']}**\n"
             reply += f"🛑 Limit Koin Bersamaan: **{cfg['max_concurrent_trades']}** koin"
+            
+        elif cmd == '/status':
+            if not self.exchange:
+                reply = "❌ Exchange is not initialized."
+            else:
+                try:
+                    positions = self.exchange.fetch_positions()
+                    active_pos = [p for p in positions if float(p.get('contracts', 0)) > 0]
+                    
+                    if not active_pos:
+                        reply = "⚪ Tidak ada posisi yang aktif saat ini."
+                    else:
+                        reply = "🟢 **DAFTAR POSISI AKTIF** 🟢\n\n"
+                        keyboard = []
+                        for p in active_pos:
+                            sym = p['symbol']
+                            side = p['side'].upper()
+                            qty = p['contracts']
+                            pnl = p.get('unrealizedPnl', 0)
+                            if pnl is None: pnl = 0
+                            icon = "🟩" if float(pnl) > 0 else "🟥"
+                            
+                            reply += f"{icon} **{sym}** ({side})\n"
+                            reply += f"   • Qty: `{qty}`\n"
+                            reply += f"   • Entry: `{p.get('entryPrice', 0)}`\n"
+                            reply += f"   • UPL: `${float(pnl):.2f}`\n\n"
+                            
+                            keyboard.append([{"text": f"🛑 End {sym}", "callback_data": f"endtrade_{sym}"}])
+                            
+                        import json
+                        url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+                        requests.post(url, json={
+                            'chat_id': chat_id, 
+                            'text': reply, 
+                            'parse_mode': 'Markdown',
+                            'reply_markup': json.dumps({"inline_keyboard": keyboard})
+                        })
+                        return # Reply handled
+                except Exception as e:
+                    reply = f"❌ Gagal mengambil status posisi: {e}"
             
         if reply:
             url = f"https://api.telegram.org/bot{self.token}/sendMessage"
