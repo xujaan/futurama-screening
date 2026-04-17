@@ -267,8 +267,8 @@ def update_status_dashboard():
     
     text_lines = "\n".join(lines) if lines else "No active trades."
     
-    # 1. Update Telegram Dashboard
-    update_telegram_dashboard(text_lines)
+    # 1. Update Telegram Dashboard (Disabled here per user request, moved to /live command)
+    # update_telegram_dashboard(text_lines)
     
     # 2. Update Discord Dashboard
     webhook = CONFIG['api'].get('discord_dashboard_webhook')

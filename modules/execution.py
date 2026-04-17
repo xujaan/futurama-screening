@@ -26,7 +26,16 @@ def execute_entry(exchange, res):
         
     total_cap = risk_cfg['total_trading_capital_usdt']
     max_trades = risk_cfg['max_concurrent_trades']
-    margin_per_trade = total_cap / max_trades
+    
+    total_score = res.get('Total_Score', 6)
+    if total_score >= 9:
+        alloc_scale = 1.0
+    elif total_score >= 7:
+        alloc_scale = 0.75
+    else:
+        alloc_scale = 0.50
+        
+    margin_per_trade = (total_cap / max_trades) * alloc_scale
     
     # 🌟 Kalkulator Jarak SL ke Leverage Dinamis
     sl_dist_pct = abs(entry_price - sl) / entry_price

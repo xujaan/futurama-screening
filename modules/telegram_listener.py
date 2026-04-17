@@ -14,6 +14,22 @@ class TelegramListener:
     def start(self):
         if not self.token: return
         self.running = True
+        
+        try:
+            url = f"https://api.telegram.org/bot{self.token}/setMyCommands"
+            commands = [
+                {"command": "status", "description": "Tampilkan PnL Live & tombol tutup posisi"},
+                {"command": "live", "description": "Lihat rekap trade dari Database"},
+                {"command": "reset", "description": "Hapus semua data riwayat screening di DB"},
+                {"command": "autotrade", "description": "ON/OFF fitur Auto Trade"},
+                {"command": "setcapital", "description": "Atur modal total trading"},
+                {"command": "setkuota", "description": "Atur batas jumlah koin berjalan"},
+                {"command": "statusrisk", "description": "Cek setelan Autotrade, Modal, Kuota"}
+            ]
+            requests.post(url, json={"commands": commands}, timeout=5)
+        except Exception as e:
+            print(f"Failed to register TG commands: {e}")
+            
         self.thread = threading.Thread(target=self.poll, daemon=True)
         self.thread.start()
         print("🤖 Telegram Command Listener Started.")
@@ -68,7 +84,8 @@ class TelegramListener:
                             'Symbol': trade['symbol'],
                             'Side': trade['side'],
                             'Entry': float(trade['entry_price']),
-                            'SL': float(trade['sl_price'])
+                            'SL': float(trade['sl_price']),
+                            'Total_Score': trade.get('tech_score', 0) + trade.get('smc_score', 0) + trade.get('quant_score', 0) + trade.get('deriv_score', 0)
                         }
                         
                         risk_cfg = get_risk_config()
@@ -129,6 +146,19 @@ class TelegramListener:
                 else:
                     reply = f"❌ {msg}"
                     
+        elif data == 'confirmreset_true':
+            from modules.database import get_conn, release_conn
+            conn = get_conn()
+            try:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM trades")
+                conn.commit()
+                reply = "✅ **SUKSES!** Seluruh data screening dan histori posisi lama di database telah berhasil dibersihkan."
+            except Exception as e:
+                reply = f"❌ Gagal mereset database: {e}"
+            finally:
+                release_conn(conn)
+                    
         if reply and chat_id:
             url = f"https://api.telegram.org/bot{self.token}/sendMessage"
             requests.post(url, json={'chat_id': chat_id, 'text': reply, 'parse_mode': 'HTML'})
@@ -168,6 +198,38 @@ class TelegramListener:
             reply += f"🤖 Auto Trade: **{'ON' if cfg['auto_trade'] else 'OFF'}**\n"
             reply += f"💰 Modal Total: **${cfg['total_trading_capital_usdt']}**\n"
             reply += f"🛑 Limit Koin Bersamaan: **{cfg['max_concurrent_trades']}** koin"
+            
+        elif cmd == '/live':
+            from modules.database import get_conn, release_conn, get_dict_cursor
+            conn = get_conn()
+            lines = []
+            try:
+                cur = get_dict_cursor(conn)
+                cur.execute("SELECT symbol, side, status, entry_hit_at, created_at FROM trades WHERE status NOT LIKE '%Closed%' ORDER BY created_at DESC")
+                trades = cur.fetchall()
+                lines = [f"`{(t['entry_hit_at'] or t['created_at']).strftime('%H:%M')}` {'🟢' if 'Active' in t['status'] else '⏳'} **{t['symbol']}** ({t['side']}): {t['status']}" for t in trades]
+            except Exception as e:
+                reply = f"❌ Error fetching DB live status: {e}"
+            finally:
+                release_conn(conn)
+            
+            if lines:
+                text_lines = "\n".join(lines)
+                reply = "<b>📊 LIVE DASHBOARD (DB)</b>\n\n" + text_lines
+            elif not reply:
+                reply = "<b>📊 LIVE DASHBOARD (DB)</b>\n\n⚪ Tidak ada trade aktif/pending di Database."
+            
+        elif cmd == '/reset':
+            keyboard = [[{"text": "⚠️ YA, HAPUS SEMUA DATA", "callback_data": "confirmreset_true"}]]
+            import json
+            url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+            requests.post(url, json={
+                'chat_id': chat_id, 
+                'text': "Apakah Anda amat yakin ingin **menghapus SELURUH histori trade & antrean screening** di database?\n\n*Tindakan ini tidak bisa dibatalkan.*", 
+                'parse_mode': 'Markdown',
+                'reply_markup': json.dumps({"inline_keyboard": keyboard})
+            })
+            return
             
         elif cmd == '/status':
             if not self.exchange:
