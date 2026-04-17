@@ -85,6 +85,7 @@ class TelegramListener:
                             'Side': trade['side'],
                             'Entry': float(trade['entry_price']),
                             'SL': float(trade['sl_price']),
+                            'TP3': float(trade['tp3']) if trade.get('tp3') else None,
                             'Total_Score': trade.get('tech_score', 0) + trade.get('smc_score', 0) + trade.get('quant_score', 0) + trade.get('deriv_score', 0)
                         }
                         

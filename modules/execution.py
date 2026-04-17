@@ -63,6 +63,10 @@ def execute_entry(exchange, res):
         'stopLoss': exchange.price_to_precision(symbol, sl)
     }
     
+    tp3 = res.get('TP3')
+    if tp3:
+        params['takeProfit'] = exchange.price_to_precision(symbol, float(tp3))
+        
     try:
         order = exchange.create_order(symbol, 'limit', side, qty_str, price_str, params)
         print(f"✅ LIMIT Order Entry Sukses! ID: {order.get('id')}")

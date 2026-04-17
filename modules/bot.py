@@ -335,10 +335,9 @@ def run_fast_update(exchange=None):
                         pos = pos_map[sym]
                         pos_side = pos['side']
                         total_qty = float(pos['contracts'])
+                        # execution.place_layered_tps(exchange, sym, pos_side, float(t['tp1']), float(t['tp2']), float(t['tp3']), total_qty)
                         
-                        execution.place_layered_tps(exchange, sym, pos_side, float(t['tp1']), float(t['tp2']), float(t['tp3']), total_qty)
-                        
-                        cur.execute("UPDATE trades SET status = 'Active (TP Set)' WHERE id = %s", (t['id'],))
+                        cur.execute("UPDATE trades SET status = 'Active (TP3 Set Natively)' WHERE id = %s", (t['id'],))
                 conn.commit()
         except Exception as e:
             print("AutoTrade TP Error:", e)
