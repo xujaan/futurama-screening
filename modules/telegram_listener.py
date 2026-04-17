@@ -20,6 +20,7 @@ class TelegramListener:
             commands = [
                 {"command": "status", "description": "Tampilkan PnL Live & tombol tutup posisi"},
                 {"command": "live", "description": "Lihat rekap trade dari Database"},
+                {"command": "scan", "description": "Paksa bot melakukan screening pasar saat ini juga"},
                 {"command": "reset", "description": "Hapus semua data riwayat screening di DB"},
                 {"command": "autotrade", "description": "ON/OFF fitur Auto Trade"},
                 {"command": "setcapital", "description": "Atur modal total trading"},
@@ -223,6 +224,17 @@ class TelegramListener:
                 reply = "<b>📊 LIVE DASHBOARD (DB)</b>\n\n" + text_lines
             elif not reply:
                 reply = "<b>📊 LIVE DASHBOARD (DB)</b>\n\n⚪ Tidak ada trade aktif/pending di Database."
+            
+        elif cmd == '/scan':
+            reply = "🔍 **Memulai Scanning Pasar Manual...**\n\n*Bot sedang menyapu ratusan koin. Biarkan ia bekerja, jika ada sinyal profit, akan segera masuk ke sini!*"
+            import threading
+            def run_manual_scan():
+                import main
+                try:
+                    main.scan()
+                except Exception as e:
+                    print(f"Manual scan error: {e}")
+            threading.Thread(target=run_manual_scan, daemon=True).start()
             
         elif cmd == '/reset':
             keyboard = [[{"text": "⚠️ YA, HAPUS SEMUA DATA", "callback_data": "confirmreset_true"}]]
