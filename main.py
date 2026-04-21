@@ -205,13 +205,14 @@ def scan(progress_callback=None):
         macro_cache = {} # MTC Phase cache
         
         for i, tf in enumerate(reversed(tfs)):
-            if progress_callback: progress_callback(f"⏳ **Menganalisa Timeframe {tf}** ({i+1}/{len(tfs)})\nMemindai {c} koin secara paralel...")
+            if progress_callback: progress_callback(f"⏳ **Menganalisa Timeframe {tf}** ({i+1}/{len(tfs)})\nMemindai {c} koin...")
             scan_results = []
-            with ThreadPoolExecutor(max_workers=CONFIG['system']['max_threads']) as ex:
-                futures = [ex.submit(analyze_ticker, s, tf, btc_bias, active_signals, macro_cache) for s in syms]
-                for f in as_completed(futures):
-                    res = f.result()
+            for s in syms:
+                try:
+                    res = analyze_ticker(s, tf, btc_bias, active_signals, macro_cache)
                     if res: scan_results.append(res)
+                except Exception as e:
+                    print(f"Error on {s}: {e}")
             
             # Sort by total score
             for res in scan_results:
