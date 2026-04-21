@@ -5,3 +5,6 @@ bot_env/*
 venv
 .agents
 .rtk
+.venv
+**/__pycache__/
+futurabot.sqlite

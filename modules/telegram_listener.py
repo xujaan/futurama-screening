@@ -29,6 +29,8 @@ class TelegramListener:
                 val = parts[1].lower()
                 if val in ['binance', 'bitget', 'bybit']:
                     if set_active_cex(val):
+                        import main
+                        main.SCAN_ABORT_FLAG = True
                         from modules.exchange_manager import get_current_exchange
                         self.exchange = get_current_exchange(force_reload=True) 
                         reply = f"✅ **Platform Switched Successfully**\nBot is now scanning and trading entirely on **{val.upper()}**.\n*(Note: Make sure your keys are mapped in config.json)*"

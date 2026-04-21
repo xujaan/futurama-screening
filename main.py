@@ -10,6 +10,7 @@ import pandas_ta_classic as ta
 import numpy as np
 import traceback
 from concurrent.futures import ThreadPoolExecutor, as_completed
+SCAN_ABORT_FLAG = False
 from modules.config_loader import CONFIG
 from modules.database import init_db, get_active_signals
 from modules.technicals import get_technicals, detect_divergence, check_volatility_squeeze, detect_regime
@@ -156,6 +157,8 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals, macro_cache):
     except: return None
 
 def scan(progress_callback=None):
+    global SCAN_ABORT_FLAG
+    SCAN_ABORT_FLAG = False
     start_time = time.time()
     msg = f"\n[{pd.Timestamp.now()}] 🔭 Scanning... Mode: {os.getenv('BOT_ENV', 'PROD')}"
     print(msg)
@@ -169,14 +172,14 @@ def scan(progress_callback=None):
     print(f"📊 BTC Bias: {btc_bias}")
     
     if progress_callback:
-        progress_callback(f"🔍 **Mulai Scanning**\nBias BTC: `{btc_bias}`\nMengambil daftar market Bybit...")
+        progress_callback(f"🔍 **Initiating Scan**\nBTC Bias: `{btc_bias}`\nFetching markets from {platform.upper()}...")
         
     active_signals = get_active_signals()
     print(f"🛡️ Active Signals Ignored: {len(active_signals)}")
     signal_count = 0 
     
     try:
-        if progress_callback: progress_callback(f"🔍 **Memfilter Koin**\nMenyingkirkan koin mati/stablecoin...")
+        if progress_callback: progress_callback(f"🔍 **Filtering Markets**\nStripping inactive/stablecoins...")
         mkts = exchange.load_markets()
         
         # 🚫 LIST OF STABLECOINS TO IGNORE (As Base Currency)
@@ -205,9 +208,11 @@ def scan(progress_callback=None):
         macro_cache = {} # MTC Phase cache
         
         for i, tf in enumerate(reversed(tfs)):
-            if progress_callback: progress_callback(f"⏳ **Menganalisa Timeframe {tf}** ({i+1}/{len(tfs)})\nMemindai {c} koin...")
+            if SCAN_ABORT_FLAG: break
+            if progress_callback: progress_callback(f"⏳ **Analyzing Timeframe {tf}** ({i+1}/{len(tfs)})\nScanning {c} valid pairs...")
             scan_results = []
             for s in syms:
+                if SCAN_ABORT_FLAG: break
                 try:
                     res = analyze_ticker(s, tf, btc_bias, active_signals, macro_cache)
                     if res: scan_results.append(res)
@@ -229,6 +234,7 @@ def scan(progress_callback=None):
                 except Exception as e: print("Gagal fetch pos limit:", e)
                 
             for res in scan_results:
+                if SCAN_ABORT_FLAG: break
                 success = send_alert(res)
                 if success: 
                     signal_count += 1
@@ -238,16 +244,20 @@ def scan(progress_callback=None):
                             if execution.execute_entry(exchange, res):
                                 active_pos_count += 1
                         else:
-                            print(f"⏩ Melewati {res['Symbol']} (Kuota penuh: {active_pos_count}/{risk_cfg.get('max_concurrent_trades', 2)})")
+                            print(f"⏩ Skipped {res['Symbol']} (Quota full: {active_pos_count}/{risk_cfg.get('max_concurrent_trades', 2)})")
                         
     except Exception as e: 
         print(f"Scan Error: {e}")
-        if progress_callback: progress_callback(f"❌ **Error saat scanning:** \n`{str(e)}`")
+        if progress_callback: progress_callback(f"❌ **Scan Fault:** \n`{str(e)}`")
     finally:
         duration = time.time() - start_time
-        print(f"✅ Scan Finished in {duration:.2f}s. Signals: {signal_count}")
-        send_scan_completion(signal_count, duration, btc_bias)
-        if progress_callback: progress_callback(f"✅ **Scanning Selesai dalam {duration:.1f} detik!**\nDitemukan **{signal_count}** sinyal valid dikirim.")
+        if SCAN_ABORT_FLAG:
+            print("🛑 Scan Aborted by User.")
+            if progress_callback: progress_callback(f"🛑 **Scan Aborted.**")
+        else:
+            print(f"✅ Scan Finished in {duration:.2f}s. Signals: {signal_count}")
+            send_scan_completion(signal_count, duration, btc_bias)
+            if progress_callback: progress_callback(f"✅ **Scan Completed in {duration:.1f}s!**\nDispatched **{signal_count}** valid signals.")
 
 if __name__ == "__main__":
     init_db()
@@ -256,8 +266,6 @@ if __name__ == "__main__":
     tg_listener = TelegramListener(exchange=exchange)
     tg_listener.start()
     
-    scan()
-    schedule.every(CONFIG['system']['check_interval_hours']).hours.do(scan)
-    schedule.every(1).minutes.do(run_fast_update, exchange=exchange)
-    print("🚀 Bot Started.")
-    while True: schedule.run_pending(); time.sleep(1)
+    print("🚀 Bot Started. Holding for manual Telegram triggers.")
+    while True: 
+        time.sleep(1)

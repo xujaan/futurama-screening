@@ -34,8 +34,8 @@ def get_technicals(df):
         df['MACD_h'] = macd[macd.columns[1]]
         
     # Squeeze & Regime Indicators
-    df['SMA_50'] = ta.sma(df['close'], length=50)
-    df['SMA_200'] = ta.sma(df['close'], length=200)
+    df['SMA_50'] = ta.sma(df['close'], length=50) if len(df) >= 50 else np.nan
+    df['SMA_200'] = ta.sma(df['close'], length=200) if len(df) >= 200 else np.nan
     
     adx_res = ta.adx(df['high'], df['low'], df['close'], length=14)
     if adx_res is not None: df['ADX_14'] = adx_res['ADX_14']
