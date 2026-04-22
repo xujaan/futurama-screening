@@ -78,7 +78,7 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals, macro_cache):
         
         # 5. Scores & Bias
         div_score, div_msg = detect_divergence(df)
-        tech_score = 3 + div_score
+        tech_score = 4 + div_score # Base score 4 (needs +1 to hit min 5)
         
         regime = detect_regime(df)
         is_squeezing, squeeze_firing = check_volatility_squeeze(df)
@@ -88,8 +88,8 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals, macro_cache):
             macro_cache[symbol] = regime
         else:
             macro_regime = macro_cache.get(symbol)
-            if macro_regime == "Trending Bull" and side == "Short": return None
-            if macro_regime == "Trending Bear" and side == "Long": return None
+            if macro_regime == "Trending Bull" and side == "Short": tech_score -= 1 # Counter macro trend
+            if macro_regime == "Trending Bear" and side == "Long": tech_score -= 1
             if macro_regime: tech_reasons.append(f"MTC Aligned")
             
         tech_reasons = [f"Pattern: {pattern}", div_msg] + smc_reasons
@@ -102,10 +102,10 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals, macro_cache):
             
         if regime == "Trending Bull":
             if side == "Long": tech_score += 1
-            else: return None # Strict trend alignment
+            else: tech_score -= 1 # Counter micro trend
         elif regime == "Trending Bear":
             if side == "Short": tech_score += 1
-            else: return None # Strict trend alignment
+            else: tech_score -= 1 # Counter micro trend
 
         tech_reasons.append(f"Regime: {regime}")
         
