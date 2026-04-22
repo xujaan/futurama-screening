@@ -16,10 +16,9 @@ def get_market_structure(df):
     last_h = highs.iloc[-1]['price']
     last_l = lows.iloc[-1]['price']
     curr = df['close'].iloc[-1]
-    
-    # Simple proximity check (1.5%)
-    if abs(curr - last_l)/last_l < 0.015: return "HL" if last_l > lows.iloc[-2]['price'] else "LL"
-    if abs(curr - last_h)/last_h < 0.015: return "HH" if last_h > highs.iloc[-2]['price'] else "LH"
+    # Expanded 4% proximity check to capture broader swing formations
+    if abs(curr - last_l)/last_l < 0.04: return "HL" if last_l > lows.iloc[-2]['price'] else "LL"
+    if abs(curr - last_h)/last_h < 0.04: return "HH" if last_h > highs.iloc[-2]['price'] else "LH"
     return "Mid-Range"
 
 def find_order_blocks(df):
@@ -34,10 +33,11 @@ def find_order_blocks(df):
     return obs
 
 def check_zone(price, obs):
+    # Expanded to 2.5% padding so order blocks actually capture the touches!
     for l, h in obs['bull']:
-        if l*0.999 <= price <= h*1.001: return "Demand"
+        if l*0.975 <= price <= h*1.025: return "Demand"
     for l, h in obs['bear']:
-        if l*0.999 <= price <= h*1.001: return "Supply"
+        if l*0.975 <= price <= h*1.025: return "Supply"
     return "None"
 
 def analyze_smc(df, side):
@@ -59,9 +59,16 @@ def analyze_smc(df, side):
     zone = check_zone(curr, obs)
     if side == "Long":
         if zone == "Demand": score += 2; reasons.append("In Bullish OB")
-        elif zone == "Supply": return False, 0, ["Avoid Long into Supply"]
+        elif zone == "Supply": score -= 1; reasons.append("Fighting Supply OB")
     if side == "Short":
         if zone == "Supply": score += 2; reasons.append("In Bearish OB")
-        elif zone == "Demand": return False, 0, ["Avoid Short into Demand"]
+        elif zone == "Demand": score -= 1; reasons.append("Fighting Demand OB")
         
+    # 3. Add baseline momentum structure (fallback to let standard trends pass)
+    if 'ema13' in df.columns and 'ema21' in df.columns:
+        if side == "Long" and df['ema13'].iloc[-1] > df['ema21'].iloc[-1]:
+            score += 1; reasons.append("EMA Alignment (Bull)")
+        if side == "Short" and df['ema13'].iloc[-1] < df['ema21'].iloc[-1]:
+            score += 1; reasons.append("EMA Alignment (Bear)")
+
     return True, score, reasons
