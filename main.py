@@ -115,7 +115,10 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals, macro_cache):
         if "Bullish" in btc_bias and side == "Short": return None
         
         valid_fo, fo_msg = check_fakeout(df, CONFIG['indicators']['min_rvol'])
-        if not valid_fo: return None
+        if not valid_fo: 
+            quant_score -= 1
+        else:
+            if fo_msg: quant_reasons.append(fo_msg)
 
         if tech_score < CONFIG['strategy']['min_tech_score']: return None
 
