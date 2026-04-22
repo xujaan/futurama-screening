@@ -57,13 +57,25 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals, macro_cache):
         # 2. Technicals & Pattern
         df = get_technicals(df)
         pattern = find_pattern(df)
-        if not pattern: return None
-        side = CONFIG['pattern_signals'].get(pattern)
+        side = None
+        if pattern: 
+            side = CONFIG['pattern_signals'].get(pattern)
         
-        # 3. SMC Analysis (Optional Filter)
-        valid_smc, smc_score, smc_reasons = analyze_smc(df, side)
+        # 3. SMC Analysis (Optional Filter or Fallback)
+        if side:
+            valid_smc, smc_score, smc_reasons = analyze_smc(df, side)
+        else:
+            # If no classical pattern, we test SMC pure zones
+            _, long_score, long_reas = analyze_smc(df, "Long")
+            _, short_score, short_reas = analyze_smc(df, "Short")
+            if long_score > short_score and long_score > 0:
+                side, pattern, smc_score, smc_reasons = "Long", "SMC Zone", long_score, long_reas
+            elif short_score > long_score and short_score > 0:
+                side, pattern, smc_score, smc_reasons = "Short", "SMC Zone", short_score, short_reas
+            else:
+                return None
+                
         if smc_score < CONFIG['strategy'].get('min_smc_score', 0):
-            # print(f"❌ {symbol} rejected: SMC Score too low ({smc_score})")
             return None
         # if not valid_smc: return None  # Un-comment for strict SMC
 
@@ -111,8 +123,8 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals, macro_cache):
         
         total_score = tech_score + smc_score + quant_score + deriv_score
         
-        if "Bearish" in btc_bias and side == "Long": return None
-        if "Bullish" in btc_bias and side == "Short": return None
+        if "Bearish" in btc_bias and side == "Long": tech_score -= 1
+        if "Bullish" in btc_bias and side == "Short": tech_score -= 1
         
         valid_fo, fo_msg = check_fakeout(df, CONFIG['indicators']['min_rvol'])
         if not valid_fo: 
