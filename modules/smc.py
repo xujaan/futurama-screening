@@ -64,11 +64,4 @@ def analyze_smc(df, side):
         if zone == "Supply": score += 2; reasons.append("In Bearish OB")
         elif zone == "Demand": score -= 1; reasons.append("Fighting Demand OB")
         
-    # 3. Add baseline momentum structure (fallback to let standard trends pass)
-    if 'ema13' in df.columns and 'ema21' in df.columns:
-        if side == "Long" and df['ema13'].iloc[-1] > df['ema21'].iloc[-1]:
-            score += 1; reasons.append("EMA Alignment (Bull)")
-        if side == "Short" and df['ema13'].iloc[-1] < df['ema21'].iloc[-1]:
-            score += 1; reasons.append("EMA Alignment (Bear)")
-
     return True, score, reasons
