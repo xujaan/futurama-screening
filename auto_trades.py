@@ -362,12 +362,12 @@ def execute_pending_orders():
     conn = get_conn()
     try:
         cur = conn.cursor()
-        cur.execute("SELECT id, symbol, side, entry_price, sl_price, tp3, quantity, leverage FROM active_trades WHERE status = 'PENDING'")
+        cur.execute("SELECT id, symbol, side, entry_price, sl_price, tp1, quantity, leverage FROM active_trades WHERE status = 'PENDING'")
         orders = cur.fetchall()
         if not orders: return 
 
         for order in orders:
-            oid, sym, side, entry, sl, tp3_val, qty, lev = order
+            oid, sym, side, entry, sl, tp1_val, qty, lev = order
             try:
                 try: exchange.set_leverage(int(lev), sym)
                 except: pass
@@ -380,8 +380,8 @@ def execute_pending_orders():
                 type_side = 'buy' if side == 'Long' else 'sell'
                 
                 params = {'stopLoss': float(sl)}
-                if tp3_val:
-                    params['takeProfit'] = float(tp3_val)
+                if tp1_val:
+                    params['takeProfit'] = float(tp1_val)
                     
                 qty = float(exchange.amount_to_precision(sym, qty))
                 

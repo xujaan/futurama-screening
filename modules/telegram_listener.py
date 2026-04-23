@@ -269,6 +269,17 @@ class TelegramListener:
                         reply = f"⚪ Zero exposure on {get_active_cex().title()}"
                         self.safesend(message.chat.id, reply)
                     else:
+                        from modules.database import get_conn, release_conn, get_dict_cursor
+                        conn = get_conn()
+                        db_trades = {}
+                        try:
+                            cur = get_dict_cursor(conn)
+                            cur.execute("SELECT symbol, sl_price, tp1, tp2, tp3 FROM active_trades WHERE status NOT LIKE '%CLOSED%'")
+                            for row in cur.fetchall():
+                                db_trades[row['symbol']] = row
+                        except Exception: pass
+                        finally: release_conn(conn)
+                        
                         reply = f"🟢 **MARKET POSITIONS ({get_active_cex().title()})** 🟢\n\n"
                         markup = InlineKeyboardMarkup()
                         for p in active_pos:
@@ -277,6 +288,7 @@ class TelegramListener:
                             qty = float(p.get('contracts', 0))
                             pnl = float(p.get('unrealizedPnl', 0) or 0)
                             entry_price = float(p.get('entryPrice', 1))
+                            mark_price = float(p.get('markPrice', entry_price))
                             
                             # Coba ambil real margin dari info
                             margin_usd = float(p.get('initialMargin', 0) or 0)
@@ -288,12 +300,38 @@ class TelegramListener:
                                 margin_usd = (qty * entry_price) / 25 # Assume 25x
                                 
                             pct = (pnl / margin_usd * 100) if margin_usd > 0 else 0
+                            
+                            dist_str = ""
+                            trade_data = db_trades.get(sym)
+                            if trade_data and mark_price > 0:
+                                def calc_dist(target):
+                                    if not target or float(target) == 0: return None
+                                    target_flt = float(target)
+                                    journey = target_flt - entry_price
+                                    if journey == 0: return 0.0
+                                    move = mark_price - entry_price
+                                    return (move / journey) * 100
+                                
+                                sl_dist = calc_dist(trade_data.get('sl_price'))
+                                tp1_dist = calc_dist(trade_data.get('tp1'))
+                                tp2_dist = calc_dist(trade_data.get('tp2'))
+                                tp3_dist = calc_dist(trade_data.get('tp3'))
+                                
+                                dists = []
+                                if sl_dist is not None: dists.append(f"SL: {sl_dist:.0f}%")
+                                if tp1_dist is not None: dists.append(f"TP1: {tp1_dist:.0f}%")
+                                if tp2_dist is not None: dists.append(f"TP2: {tp2_dist:.0f}%")
+                                if tp3_dist is not None: dists.append(f"TP3: {tp3_dist:.0f}%")
+                                
+                                if dists:
+                                    dist_str = f"   • 📈 Prog: " + " | ".join(dists) + "\n"
                                 
                             icon = "🟩" if pnl > 0 else "🟥"
                             reply += f"{icon} **{sym}** (`{side}`)\n"
                             reply += f"   • Size: `{qty}`\n"
                             reply += f"   • Margin: `${margin_usd:.2f}`\n"
                             reply += f"   • B. Entry: `{entry_price}`\n"
+                            reply += dist_str
                             reply += f"   • Est uNL: `${pnl:.2f} ({pct:.2f}%)`\n\n"
                             markup.add(InlineKeyboardButton(f"🛑 Kill {sym}", callback_data=f"endtrade_{sym}"))
                         
@@ -322,7 +360,7 @@ class TelegramListener:
                             'Side': trade['side'],
                             'Entry': float(trade['entry_price']),
                             'SL': float(trade['sl_price']),
-                            'TP3': float(trade['tp3']) if trade.get('tp3') else None,
+                            'TP1': float(trade['tp1']) if trade.get('tp1') else None,
                             'Total_Score': trade.get('tech_score', 0) + trade.get('smc_score', 0) + trade.get('quant_score', 0) + trade.get('deriv_score', 0)
                         }
                         risk_cfg = get_risk_config()
