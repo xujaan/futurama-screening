@@ -16,6 +16,8 @@ def analyze_derivatives(df, ticker, side):
     funding = float(ticker.get('info', {}).get('fundingRate', 0))
     if side == "Long" and funding > 0.02: 
         return False, 0, ["Funding Hot (>0.02%)"]
+    if side == "Short" and funding < -0.02:
+        return False, 0, ["Funding Squeeze Risk (<-0.02%)"]
     
     if abs(funding) < 0.01: 
         score += 1

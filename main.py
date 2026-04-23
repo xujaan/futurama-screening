@@ -135,6 +135,7 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals, macro_cache):
             if fo_msg: quant_reasons.append(fo_msg)
 
         if tech_score < CONFIG['strategy']['min_tech_score']: return None
+        if quant_score < CONFIG['strategy'].get('min_quant_score', 0): return None
 
         # 6. Setup Calculation
         s = CONFIG['setup']
@@ -194,6 +195,7 @@ def scan(progress_callback=None):
     active_signals = get_active_signals()
     print(f"🛡️ Active Signals Ignored: {len(active_signals)}")
     signal_count = 0 
+    all_dispatched = []
     
     try:
         if progress_callback: progress_callback(f"🔍 **Filtering Markets**\nStripping inactive/stablecoins...")
@@ -259,6 +261,7 @@ def scan(progress_callback=None):
                 success = send_alert(res)
                 if success: 
                     signal_count += 1
+                    all_dispatched.append(res)
                     if risk_cfg.get('auto_trade', False):
                         if active_pos_count < risk_cfg.get('max_concurrent_trades', 2):
                             import modules.execution as execution
@@ -277,7 +280,7 @@ def scan(progress_callback=None):
             if progress_callback: progress_callback(f"🛑 **Scan Aborted.**")
         else:
             print(f"✅ Scan Finished in {duration:.2f}s. Signals: {signal_count}")
-            send_scan_completion(signal_count, duration, btc_bias)
+            send_scan_completion(signal_count, duration, btc_bias, all_dispatched)
             if progress_callback: progress_callback(f"✅ **Scan Completed in {duration:.1f}s!**\nDispatched **{signal_count}** valid signals.")
 
 if __name__ == "__main__":

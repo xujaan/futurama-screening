@@ -103,7 +103,8 @@ def send_telegram_alert(data, image_path=None):
     text += f"• OBI: `{data.get('OBI', 0.0):.2f}`\n"
     text += f"• Funding: `{fund_pct:.4f}%`\n\n"
     
-    text += f"🏆 **Scores:**\nTech: `{data.get('Tech_Score',0)}` | SMC: `{data.get('SMC_Score',0)}` | Quant: `{data.get('Quant_Score',0)}` | Deriv: `{data.get('Deriv_Score',0)}`\n"
+    total_score = data.get('Tech_Score', 0) + data.get('SMC_Score', 0) + data.get('Quant_Score', 0) + data.get('Deriv_Score', 0)
+    text += f"🏆 **Scores (Total: {total_score}):**\nTech: `{data.get('Tech_Score',0)}` | SMC: `{data.get('SMC_Score',0)}` | Quant: `{data.get('Quant_Score',0)}` | Deriv: `{data.get('Deriv_Score',0)}`\n"
     text += f"🧠 **BTC Bias:** {data.get('BTC_Bias', '-')}"
     
     url = f"https://api.telegram.org/bot{token}/"
@@ -227,13 +228,23 @@ def update_status_dashboard():
     text_lines = "\n".join(lines) if lines else "No active trades."
     # update_telegram_dashboard(text_lines) # Disabled per user preference
 
-def send_scan_completion(count, duration, bias):
+def send_scan_completion(count, duration, bias, dispatched_signals=None):
     tg_token = CONFIG['api'].get('telegram_bot_token')
     tg_chat = CONFIG['api'].get('telegram_chat_id')
     active_cex = get_active_cex().upper()
     if tg_token and tg_chat:
         icon = "🟢" if "Bullish" in bias else ("🔴" if "Bearish" in bias else "⚪")
         text = f"🔭 **Scan Cycle Complete ({active_cex})**\n\n⏱️ **Duration:** `{duration:.2f}s`\n📶 **Signals Found:** `{count}`\n📊 **Global Bias:** {icon} **{bias}**"
+        
+        if dispatched_signals and len(dispatched_signals) > 0:
+            sorted_signals = sorted(dispatched_signals, key=lambda x: x.get('Total_Score', 0), reverse=True)
+            text += "\n\n🏆 **Signal Leaderboard:**\n"
+            
+            for idx, sig in enumerate(sorted_signals):
+                emoji = "🚀" if sig['Side'] == 'Long' else "🔻"
+                score = sig.get('Total_Score', 0)
+                text += f"{idx+1}. {emoji} **{sig['Symbol']}** ({sig['Timeframe']}) \\- Score: `{score}`\n"
+                
         url = f"https://api.telegram.org/bot{tg_token}/sendMessage"
         try: requests.post(url, json={'chat_id': tg_chat, 'text': telegramify_markdown.markdownify(text), 'parse_mode': 'MarkdownV2'})
         except: pass

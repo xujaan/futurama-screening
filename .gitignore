@@ -1,3 +1,8 @@
+# Tujuan: Menghindari file sensitif dan database lokal masuk ke repository.
+# Caller: Git
+# Dependensi: None
+# Side Effects: Mengabaikan file sqlite, config, dan cache.
+
 .env
 config.json
 bot_env/*
@@ -7,4 +12,12 @@ venv
 .rtk
 .venv
 **/__pycache__/
+
+# Database & Temporary Files
 *.sqlite
+*.sqlite-journal
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+skills-lock.json

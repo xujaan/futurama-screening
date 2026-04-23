@@ -32,6 +32,8 @@
   "strategy": {
     "min_tech_score": 4,
     "min_quant_score": 3,
+    "min_smc_score": 2,
+    "min_deriv_score": 2,
     "risk_reward_min": 2.0
   },
   "indicators": {

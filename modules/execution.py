@@ -60,12 +60,15 @@ def execute_entry(exchange, res):
     print(f"🚀 (Auto-Trade) LIMIT Order {symbol} | Mgn: ${margin_per_trade:.2f} | Lev: {leverage}x | Qty: {qty} | Entry: {price_str}")
     
     params = {
-        'stopLoss': exchange.price_to_precision(symbol, sl)
+        'stopLoss': float(sl)
     }
     
     tp3 = res.get('TP3')
-    if tp3:
-        params['takeProfit'] = exchange.price_to_precision(symbol, float(tp3))
+    tp1 = res.get('TP1')
+    # if tp3:
+    #     params['takeProfit'] = float(tp3)
+    if tp1:
+        params['takeProfit'] = float(tp1)
         
     try:
         order = exchange.create_order(symbol, 'limit', side, qty_str, price_str, params)

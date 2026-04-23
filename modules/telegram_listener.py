@@ -278,14 +278,21 @@ class TelegramListener:
                             pnl = float(p.get('unrealizedPnl', 0) or 0)
                             entry_price = float(p.get('entryPrice', 1))
                             
-                            pct = float(p.get('percentage', 0) or 0)
-                            if pct == 0 and qty > 0 and entry_price > 0:
-                                margin_est = (qty * entry_price) / 25
-                                pct = (pnl / margin_est * 100) if margin_est > 0 else 0
+                            # Coba ambil real margin dari info
+                            margin_usd = float(p.get('initialMargin', 0) or 0)
+                            if margin_usd == 0 and 'info' in p:
+                                margin_usd = float(p['info'].get('positionMargin', 0) or 0)
+                            
+                            # Fallback
+                            if margin_usd == 0 and qty > 0 and entry_price > 0:
+                                margin_usd = (qty * entry_price) / 25 # Assume 25x
+                                
+                            pct = (pnl / margin_usd * 100) if margin_usd > 0 else 0
                                 
                             icon = "🟩" if pnl > 0 else "🟥"
                             reply += f"{icon} **{sym}** (`{side}`)\n"
-                            reply += f"   • Margin: `{qty}`\n"
+                            reply += f"   • Size: `{qty}`\n"
+                            reply += f"   • Margin: `${margin_usd:.2f}`\n"
                             reply += f"   • B. Entry: `{entry_price}`\n"
                             reply += f"   • Est uNL: `${pnl:.2f} ({pct:.2f}%)`\n\n"
                             markup.add(InlineKeyboardButton(f"🛑 Kill {sym}", callback_data=f"endtrade_{sym}"))
@@ -340,6 +347,13 @@ class TelegramListener:
                                     f"🛑 **Stop Loss:** `{fmt_price(result['sl'])}`\n"
                                     f"🛒 **Order ID:** `{result['order_id']}`"
                                 )
+                                try:
+                                    cur.execute("""
+                                        INSERT INTO active_trades (signal_id, symbol, side, entry_price, sl_price, tp1, tp2, tp3, quantity, leverage, order_id, status)
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN')
+                                    """, (trade['id'], result['symbol'], trade['side'], result['entry_price'], result['sl'], trade['tp1'], trade['tp2'], trade['tp3'], result['qty'], result['leverage'], result['order_id']))
+                                    conn.commit()
+                                except Exception as e: print(f"Active trades insert err: {e}")
                             else: reply = f"❌ Failed to place order for {symbol}."
                         else: reply = f"❌ Trade limit reached ({active_pos_count}/{risk_cfg.get('max_concurrent_trades', 2)})"
                     else: reply = f"❌ No 'Waiting Entry' found for {symbol}."
