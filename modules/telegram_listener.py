@@ -181,18 +181,33 @@ class TelegramListener:
                     open_orders = self.exchange.fetch_open_orders()
                     if not open_orders: reply = f"⚪ No active limit queues on {get_active_cex().title()}"
                     else:
-                        block = ""
+                        reply = f"⏳ **BROKER QUEUE ({get_active_cex().title()})** ⏳\n\n"
                         for o in open_orders:
-                            sym = o['symbol'].split(':')[0]
+                            sym = o['symbol']
                             side = o['side'].upper()
-                            qty = o['amount']
-                            price = o['price']
-                            block += f"{sym} ({side})\n"
-                            block += f" ├ Size: {qty}\n └ Bid : {price}\n\n"
-                            if len(block) > 3500:
-                                block += "...(Truncated)...\n"
+                            qty = o.get('amount', 0)
+                            
+                            price = o.get('price')
+                            if not price:
+                                price = o.get('stopPrice') or o.get('triggerPrice')
+                                if not price and 'info' in o:
+                                    price = o['info'].get('triggerPrice') or o['info'].get('stopPrice') or o['info'].get('takeProfit') or 'Market'
+                                    
+                            is_reduce = o.get('reduceOnly')
+                            if is_reduce is None and 'info' in o:
+                                is_reduce = str(o['info'].get('reduceOnly', '')).lower() == 'true'
+                                
+                            order_type = "Closing (TP/SL)" if is_reduce else "Entry Limit"
+                            icon = "🟢" if side == "BUY" else "🔴"
+                            
+                            reply += f"{icon} **{sym}** (`{side}`)\n"
+                            reply += f"   • Role: `{order_type}`\n"
+                            reply += f"   • Size: `{qty}`\n"
+                            reply += f"   • Target: `{price}`\n\n"
+                            
+                            if len(reply) > 3500:
+                                reply += "*(Truncated)*\n"
                                 break
-                        reply = f"⏳ **BROKER QUEUE ({get_active_cex().title()})** ⏳\n\n```text\n{block}\n```"
                 except Exception as e: reply = f"❌ Fetch limits failed: {e}"
             self.safesend(message.chat.id, reply)
 
