@@ -63,6 +63,7 @@ class SQLiteConnWrapper:
 def init_db():
     conn = get_conn()
     migrate_schema(conn)
+    init_execution_db(conn)
     release_conn(conn)
     print("✅ SQLite Connected & Schema Synced.")
 
@@ -162,6 +163,245 @@ def migrate_schema(conn):
     except Exception as e:
         print(f"❌ Migration Failed: {e}")
         conn.rollback()
+
+def init_execution_db(conn=None):
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS active_trades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                signal_id INT,
+                symbol VARCHAR(20),
+                side VARCHAR(10),
+                entry_price DECIMAL,
+                sl_price DECIMAL,
+                tp1 DECIMAL,
+                tp2 DECIMAL,
+                tp3 DECIMAL,
+                quantity DECIMAL,
+                leverage INT,
+                order_id VARCHAR(50),
+                status VARCHAR(20) DEFAULT 'PENDING',
+                pnl DECIMAL DEFAULT 0,
+                is_sl_moved BOOLEAN DEFAULT FALSE,
+                trailing_active BOOLEAN DEFAULT FALSE,
+                trailing_stop_price DECIMAL,
+                strategy VARCHAR(20) DEFAULT 'NORMAL',
+                grid_layer INT DEFAULT 1,
+                grid_max_layers INT DEFAULT 1,
+                avg_entry_price DECIMAL,
+                origin_timeframe VARCHAR(5),
+                management_state VARCHAR(30) DEFAULT 'LIVE_MONITORING',
+                progress_ratio DECIMAL DEFAULT 0,
+                peak_price DECIMAL,
+                peak_progress_ratio DECIMAL DEFAULT 0,
+                locked_profit_level INT DEFAULT 0,
+                last_candle_check_at TIMESTAMP,
+                last_sl_update_at TIMESTAMP,
+                last_tp_update_at TIMESTAMP,
+                last_management_note TEXT,
+                partial_tp_done BOOLEAN DEFAULT FALSE,
+                early_exit_done BOOLEAN DEFAULT FALSE,
+                last_action_type VARCHAR(30),
+                last_action_at TIMESTAMP,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        cur.execute("PRAGMA table_info('active_trades');")
+        existing_cols = {row[1] if not isinstance(row, dict) else row['name'] for row in cur.fetchall()}
+        required_cols = {
+            'origin_timeframe': "VARCHAR(5)",
+            'management_state': "VARCHAR(30) DEFAULT 'LIVE_MONITORING'",
+            'progress_ratio': "DECIMAL DEFAULT 0",
+            'peak_price': "DECIMAL",
+            'peak_progress_ratio': "DECIMAL DEFAULT 0",
+            'locked_profit_level': "INT DEFAULT 0",
+            'last_candle_check_at': "TIMESTAMP",
+            'last_sl_update_at': "TIMESTAMP",
+            'last_tp_update_at': "TIMESTAMP",
+            'last_management_note': "TEXT",
+            'partial_tp_done': "BOOLEAN DEFAULT FALSE",
+            'early_exit_done': "BOOLEAN DEFAULT FALSE",
+            'last_action_type': "VARCHAR(30)",
+            'last_action_at': "TIMESTAMP",
+        }
+        for col, dtype in required_cols.items():
+            if col not in existing_cols:
+                cur.execute(f"ALTER TABLE active_trades ADD COLUMN {col} {dtype};")
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS daily_reports (
+                report_date DATE PRIMARY KEY,
+                total_pnl DECIMAL DEFAULT 0,
+                win_rate DECIMAL DEFAULT 0,
+                total_wins INT DEFAULT 0,
+                total_losses INT DEFAULT 0,
+                total_trades INT DEFAULT 0,
+                best_trade_symbol VARCHAR(20),
+                best_trade_pnl DECIMAL,
+                worst_trade_symbol VARCHAR(20),
+                worst_trade_pnl DECIMAL,
+                generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        backfilled = backfill_active_trade_metadata(conn)
+        synced = sync_manual_closed_active_trades(conn)
+        conn.commit()
+        return {'backfilled_origin_timeframe': backfilled, 'synced_manual_closures': synced}
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        if own_conn:
+            release_conn(conn)
+
+def backfill_active_trade_metadata(conn=None):
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE active_trades
+            SET origin_timeframe = COALESCE(
+                NULLIF(TRIM(origin_timeframe), ''),
+                (
+                    SELECT t.timeframe
+                    FROM trades t
+                    WHERE t.id = active_trades.signal_id
+                ),
+                (
+                    SELECT t2.timeframe
+                    FROM trades t2
+                    WHERE t2.symbol = active_trades.symbol
+                      AND t2.created_at <= active_trades.created_at
+                    ORDER BY t2.created_at DESC
+                    LIMIT 1
+                ),
+                '15m'
+            )
+            WHERE origin_timeframe IS NULL OR TRIM(origin_timeframe) = ''
+        """)
+        rowcount = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
+        if own_conn:
+            conn.commit()
+        return rowcount
+    except Exception:
+        if own_conn:
+            conn.rollback()
+        raise
+    finally:
+        if own_conn:
+            release_conn(conn)
+
+def sync_manual_closed_active_trades(conn=None):
+    own_conn = conn is None
+    if own_conn:
+        conn = get_conn()
+    try:
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE active_trades
+            SET status = 'CLOSED',
+                last_management_note = COALESCE(last_management_note, 'synced_manual_close'),
+                updated_at = datetime('now')
+            WHERE status IN ('PENDING', 'OPEN', 'OPEN_TPS_SET')
+              AND signal_id IN (
+                  SELECT id
+                  FROM trades
+                  WHERE status = 'Closed (Manual)'
+              )
+        """)
+        rowcount = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else 0
+        if own_conn:
+            conn.commit()
+        return rowcount
+    except Exception:
+        if own_conn:
+            conn.rollback()
+        raise
+    finally:
+        if own_conn:
+            release_conn(conn)
+
+def get_active_trade_activity(limit=15):
+    conn = get_conn()
+    try:
+        cur = get_dict_cursor(conn)
+        cur.execute("""
+            SELECT a.id, a.symbol, a.side, a.status, a.strategy, a.origin_timeframe,
+                   a.progress_ratio, a.peak_progress_ratio, a.locked_profit_level,
+                   a.last_action_type, a.last_management_note, a.updated_at, a.created_at,
+                   t.status AS signal_status
+            FROM active_trades a
+            LEFT JOIN trades t ON t.id = a.signal_id
+            ORDER BY a.updated_at DESC, a.created_at DESC, a.id DESC
+            LIMIT ?
+        """, (int(limit),))
+        return cur.fetchall()
+    except Exception:
+        return []
+    finally:
+        release_conn(conn)
+
+def cleanup_stale_signals(pending_hours=24, closed_days=7, apply=False, preview_limit=10):
+    conn = get_conn()
+    try:
+        cur = get_dict_cursor(conn)
+        active_statuses = ('PENDING', 'OPEN', 'OPEN_TPS_SET')
+        cur.execute("""
+            SELECT t.id, t.symbol, t.side, t.timeframe, t.status, t.created_at, t.closed_at
+            FROM trades t
+            WHERE NOT EXISTS (
+                SELECT 1
+                FROM active_trades a
+                WHERE a.signal_id = t.id
+                  AND a.status IN (?, ?, ?)
+            )
+              AND (
+                (t.status = 'Waiting Entry' AND t.created_at < datetime('now', ?))
+                OR
+                ((t.status LIKE '%Closed%' OR t.status LIKE '%Cancelled%' OR t.status LIKE '%Stop Loss%')
+                 AND COALESCE(t.closed_at, t.created_at) < datetime('now', ?))
+              )
+            ORDER BY t.created_at ASC
+        """, (
+            active_statuses[0], active_statuses[1], active_statuses[2],
+            f'-{int(pending_hours)} hours',
+            f'-{int(closed_days)} days',
+        ))
+        candidates = cur.fetchall()
+        sample = candidates[:max(0, int(preview_limit))]
+        waiting_count = sum(1 for row in candidates if row.get('status') == 'Waiting Entry')
+        closed_count = len(candidates) - waiting_count
+
+        deleted = 0
+        if apply and candidates:
+            ids = [(row['id'],) for row in candidates]
+            raw_cur = conn.cursor()
+            raw_cur.executemany("DELETE FROM trades WHERE id = ?", ids)
+            deleted = len(candidates)
+            conn.commit()
+
+        return {
+            'apply': bool(apply),
+            'pending_hours': int(pending_hours),
+            'closed_days': int(closed_days),
+            'candidate_count': len(candidates),
+            'waiting_count': waiting_count,
+            'closed_count': closed_count,
+            'deleted_count': deleted,
+            'sample': sample,
+        }
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        release_conn(conn)
 
 def get_active_signals():
     conn = get_conn()

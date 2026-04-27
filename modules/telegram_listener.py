@@ -2,7 +2,15 @@ import time
 import threading
 import telebot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from modules.database import set_risk_config, get_risk_config, set_active_cex, get_active_cex
+from modules.database import (
+    set_risk_config,
+    get_risk_config,
+    set_active_cex,
+    get_active_cex,
+    get_active_trade_activity,
+    cleanup_stale_signals,
+    init_execution_db,
+)
 from modules.config_loader import CONFIG
 import telegramify_markdown
 
@@ -254,6 +262,90 @@ class TelegramListener:
             finally: release_conn(conn)
             self.safesend(message.chat.id, reply)
 
+        @self.bot.message_handler(commands=['activity'])
+        def cmd_activity(message):
+            parts = message.text.split()
+            limit = 12
+            if len(parts) > 1:
+                try:
+                    limit = max(1, min(int(parts[1]), 30))
+                except Exception:
+                    self.safesend(message.chat.id, "❌ Format error. Example: `/activity 15`")
+                    return
+
+            try:
+                init_execution_db()
+                rows = get_active_trade_activity(limit)
+                if not rows:
+                    reply = "⚪ No active trade activity recorded yet."
+                else:
+                    block = ""
+                    for row in rows:
+                        ts = str(row.get('updated_at') or row.get('created_at') or '')[5:16]
+                        tf = row.get('origin_timeframe') or '-'
+                        lock_level = int(row.get('locked_profit_level') or 0)
+                        progress = float(row.get('progress_ratio') or 0)
+                        peak = float(row.get('peak_progress_ratio') or 0)
+                        last_action = row.get('last_action_type') or '-'
+                        note = str(row.get('last_management_note') or '-')
+                        signal_status = row.get('signal_status') or '-'
+                        block += (
+                            f"[{ts}] {row['symbol'].split(':')[0]} | {row['status']} | TF {tf} | "
+                            f"L{lock_level} | now {progress:.2f}R | peak {peak:.2f}R\n"
+                            f" > action: {last_action} | signal: {signal_status}\n"
+                            f" > note: {note[:80]}\n"
+                        )
+                    reply = f"🧾 **ACTIVE TRADE HISTORY (Last {limit})**\n\n```text\n{block}\n```"
+            except Exception as e:
+                reply = f"❌ Fetch activity failed: {e}"
+
+            self.safesend(message.chat.id, reply)
+
+        @self.bot.message_handler(commands=['cleanupsignals'])
+        def cmd_cleanupsignals(message):
+            parts = message.text.split()
+            pending_hours = 24
+            apply_cleanup = False
+
+            for token in parts[1:]:
+                lower = token.lower()
+                if lower in ['apply', 'run', 'confirm', 'yes']:
+                    apply_cleanup = True
+                else:
+                    try:
+                        pending_hours = max(1, min(int(token), 24 * 30))
+                    except Exception:
+                        self.safesend(message.chat.id, "❌ Format error. Example: `/cleanupsignals 24` or `/cleanupsignals 24 apply`")
+                        return
+
+            try:
+                result = cleanup_stale_signals(pending_hours=pending_hours, closed_days=7, apply=apply_cleanup)
+                lines = []
+                for row in result['sample']:
+                    ts = str(row.get('closed_at') or row.get('created_at') or '')[:16]
+                    lines.append(
+                        f"{row['id']} | {row['symbol'].split(':')[0]} | {row['status']} | {row.get('timeframe') or '-'} | {ts}"
+                    )
+                sample_block = "\n".join(lines) if lines else "No candidates."
+                mode = "APPLIED" if apply_cleanup else "PREVIEW"
+                reply = (
+                    f"🧹 **SIGNAL CLEANUP {mode}**\n\n"
+                    f"• Waiting Entry older than: `{result['pending_hours']}h`\n"
+                    f"• Closed/Cancelled older than: `{result['closed_days']}d`\n"
+                    f"• Candidates: `{result['candidate_count']}`\n"
+                    f"• Waiting Entry: `{result['waiting_count']}`\n"
+                    f"• Closed: `{result['closed_count']}`\n"
+                )
+                if apply_cleanup:
+                    reply += f"• Deleted: `{result['deleted_count']}`\n"
+                reply += f"\n```text\n{sample_block}\n```"
+                if not apply_cleanup:
+                    reply += "\nRun `/cleanupsignals 24 apply` to execute."
+            except Exception as e:
+                reply = f"❌ Cleanup failed: {e}"
+
+            self.safesend(message.chat.id, reply)
+
         @self.bot.message_handler(commands=['fav'])
         def cmd_fav(message):
             from modules.database import get_conn, release_conn, get_dict_cursor
@@ -301,7 +393,13 @@ class TelegramListener:
                         db_trades = {}
                         try:
                             cur = get_dict_cursor(conn)
-                            cur.execute("SELECT symbol, sl_price, tp1, tp2, tp3 FROM active_trades WHERE status NOT LIKE '%CLOSED%'")
+                            cur.execute("""
+                                SELECT symbol, sl_price, tp1, tp2, tp3, origin_timeframe, strategy,
+                                       progress_ratio, peak_progress_ratio, locked_profit_level,
+                                       last_management_note, partial_tp_done, early_exit_done
+                                FROM active_trades
+                                WHERE status NOT LIKE '%CLOSED%'
+                            """)
                             for row in cur.fetchall():
                                 db_trades[row['symbol']] = row
                         except Exception: pass
@@ -329,6 +427,7 @@ class TelegramListener:
                             pct = (pnl / margin_usd * 100) if margin_usd > 0 else 0
                             
                             dist_str = ""
+                            management_str = ""
                             trade_data = db_trades.get(sym)
                             if trade_data and mark_price > 0:
                                 def calc_dist(target):
@@ -352,6 +451,29 @@ class TelegramListener:
                                 
                                 if dists:
                                     dist_str = f"   • 📈 Prog: " + " | ".join(dists) + "\n"
+
+                                mgmt_bits = []
+                                origin_tf = trade_data.get('origin_timeframe')
+                                strategy_name = trade_data.get('strategy')
+                                lock_level = trade_data.get('locked_profit_level')
+                                progress_ratio = trade_data.get('progress_ratio')
+                                peak_progress = trade_data.get('peak_progress_ratio')
+                                last_note = trade_data.get('last_management_note')
+                                partial_done = trade_data.get('partial_tp_done')
+                                early_exit_done = trade_data.get('early_exit_done')
+
+                                if origin_tf: mgmt_bits.append(f"TF: {origin_tf}")
+                                if strategy_name: mgmt_bits.append(f"Mode: {strategy_name}")
+                                if lock_level is not None: mgmt_bits.append(f"Lock: L{int(lock_level)}")
+                                if progress_ratio is not None: mgmt_bits.append(f"Now: {float(progress_ratio):.2f}R")
+                                if peak_progress is not None: mgmt_bits.append(f"Peak: {float(peak_progress):.2f}R")
+                                if partial_done: mgmt_bits.append("Partial: Yes")
+                                if early_exit_done: mgmt_bits.append("ExitFlag: Yes")
+
+                                if mgmt_bits:
+                                    management_str = f"   • 🧠 Mgmt: " + " | ".join(mgmt_bits) + "\n"
+                                if last_note:
+                                    management_str += f"   • 📝 Note: `{str(last_note)[:60]}`\n"
                                 
                             icon = "🟩" if pnl > 0 else "🟥"
                             reply += f"{icon} **{sym}** (`{side}`)\n"
@@ -359,6 +481,7 @@ class TelegramListener:
                             reply += f"   • Margin: `${margin_usd:.2f}`\n"
                             reply += f"   • B. Entry: `{entry_price}`\n"
                             reply += dist_str
+                            reply += management_str
                             reply += f"   • Est uNL: `${pnl:.2f} ({pct:.2f}%)`\n\n"
                             markup.add(InlineKeyboardButton(f"🛑 Kill {sym}", callback_data=f"endtrade_{sym}"))
                         
@@ -385,6 +508,7 @@ class TelegramListener:
                         res = {
                             'Symbol': trade['symbol'],
                             'Side': trade['side'],
+                            'Timeframe': trade['timeframe'],
                             'Entry': float(trade['entry_price']),
                             'SL': float(trade['sl_price']),
                             'TP1': float(trade['tp1']) if trade.get('tp1') else None,
@@ -414,11 +538,18 @@ class TelegramListener:
                                 )
                                 try:
                                     cur.execute("""
-                                        INSERT INTO active_trades (signal_id, symbol, side, entry_price, sl_price, tp1, tp2, tp3, quantity, leverage, order_id, status, strategy, grid_max_layers, avg_entry_price)
-                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)
-                                    """, (trade['id'], result['symbol'], trade['side'], result['entry_price'], result['sl'], result['tp1'], result['tp2'], result['tp3'], result['qty'], result['leverage'], result['order_id'], result['strategy'], result['grid_max'], result['entry_price']))
+                                        INSERT INTO active_trades (
+                                            signal_id, symbol, side, entry_price, sl_price, tp1, tp2, tp3,
+                                            quantity, leverage, order_id, status, strategy, grid_max_layers,
+                                            avg_entry_price, origin_timeframe, management_state, progress_ratio,
+                                            peak_price, peak_progress_ratio, locked_profit_level
+                                        )
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, 'LIVE_MONITORING', 0, ?, 0, 0)
+                                    """, (trade['id'], result['symbol'], trade['side'], result['entry_price'], result['sl'], result['tp1'], result['tp2'], result['tp3'], result['qty'], result['leverage'], result['order_id'], result['strategy'], result['grid_max'], result['entry_price'], trade['timeframe'], result['entry_price']))
                                     conn.commit()
-                                except Exception as e: print(f"Active trades insert err: {e}")
+                                except Exception as e:
+                                    reply += f"\n\n⚠️ **DB Sync Warning:** `{e}`"
+                                    print(f"Active trades insert err: {e}")
                             else: reply = f"❌ Failed to place order for {symbol}."
                         else: reply = f"❌ Trade limit reached ({active_pos_count}/{risk_cfg.get('max_concurrent_trades', 2)})"
                     else: reply = f"❌ No 'Waiting Entry' found for {symbol}."
@@ -443,9 +574,18 @@ class TelegramListener:
                     try:
                         cur = get_dict_cursor(conn)
                         cur.execute("UPDATE trades SET status = 'Closed (Manual)' WHERE symbol = ? AND status NOT LIKE '%Closed%'", (symbol,))
+                        cur.execute("""
+                            UPDATE active_trades
+                            SET status = 'CLOSED',
+                                last_management_note = 'manual_close',
+                                updated_at = datetime('now')
+                            WHERE symbol = ? AND status IN ('PENDING', 'OPEN', 'OPEN_TPS_SET')
+                        """, (symbol,))
                         conn.commit()
                         log_action('MANUAL_CLOSE', f"User manually closed position for {symbol}")
-                    except: pass
+                    except Exception as e:
+                        log_action('MANUAL_CLOSE_DB_SYNC_ERROR', f"Closed on exchange but DB sync failed for {symbol}: {e}")
+                        reply += f"\n\n⚠️ **DB Sync Warning:** `{e}`"
                     finally: release_conn(conn)
                 else: 
                     log_action('MANUAL_CLOSE_ERROR', f"Failed to close {symbol}: {msg_response}")
@@ -552,6 +692,8 @@ class TelegramListener:
                 telebot.types.BotCommand("stop", "Abort any active screening sequence"),
                 telebot.types.BotCommand("fav", "View favorite saved signals"),
                 telebot.types.BotCommand("log", "View system activity logs"),
+                telebot.types.BotCommand("activity", "View active trade management history"),
+                telebot.types.BotCommand("cleanupsignals", "Preview or clean stale screening signals"),
                 telebot.types.BotCommand("reset", "Erase screening histories from database"),
                 telebot.types.BotCommand("autotrade", "Toggle Autotrade ON/OFF"),
                 telebot.types.BotCommand("setcapital", "Set trading equity config"),

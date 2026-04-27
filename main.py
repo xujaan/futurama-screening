@@ -299,11 +299,17 @@ def scan(progress_callback=None):
                                 try:
                                     cur = conn.cursor()
                                     cur.execute("""
-                                        INSERT INTO active_trades (signal_id, symbol, side, entry_price, sl_price, tp1, tp2, tp3, quantity, leverage, order_id, status, strategy, grid_max_layers, avg_entry_price)
-                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?)
-                                    """, (trade_id, exec_res['symbol'], exec_res['side'], exec_res['entry_price'], exec_res['sl'], exec_res.get('tp1'), exec_res.get('tp2'), exec_res.get('tp3'), exec_res['qty'], exec_res['leverage'], exec_res['order_id'], exec_res['strategy'], exec_res['grid_max'], exec_res['entry_price']))
+                                        INSERT INTO active_trades (
+                                            signal_id, symbol, side, entry_price, sl_price, tp1, tp2, tp3,
+                                            quantity, leverage, order_id, status, strategy, grid_max_layers,
+                                            avg_entry_price, origin_timeframe, management_state, progress_ratio,
+                                            peak_price, peak_progress_ratio, locked_profit_level
+                                        )
+                                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?, 'LIVE_MONITORING', 0, ?, 0, 0)
+                                    """, (trade_id, exec_res['symbol'], exec_res['side'], exec_res['entry_price'], exec_res['sl'], exec_res.get('tp1'), exec_res.get('tp2'), exec_res.get('tp3'), exec_res['qty'], exec_res['leverage'], exec_res['order_id'], exec_res['strategy'], exec_res['grid_max'], exec_res['entry_price'], res.get('Timeframe'), exec_res['entry_price']))
                                     conn.commit()
-                                except: pass
+                                except Exception as db_err:
+                                    print(f"⚠️ active_trades insert failed for {exec_res['symbol']}: {db_err}")
                                 finally: release_conn(conn)
                         else:
                             print(f"⏩ Skipped {res['Symbol']} (Quota full: {active_pos_count}/{risk_cfg.get('max_concurrent_trades', 2)})")

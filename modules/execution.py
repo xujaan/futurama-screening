@@ -1,6 +1,15 @@
+"""
+Tujuan: Eksekusi order ke bursa (Binance, Bitget, Bybit) dengan manajemen leverage dinamis dan adaptive SL.
+Caller: main.py, auto_trades.py
+Dependensi: ccxt, modules.database, modules.config_loader, modules.technicals
+Main Functions: execute_entry(), place_layered_tps(), close_position()
+Side Effects: REST API Call ke bursa (Create/Cancel Order), Database Read (Risk Config).
+"""
 import ccxt
 import time
 import math
+import pandas as pd
+from modules.technicals import calculate_atr, find_swing_low, find_swing_high, calculate_dynamic_sl
 
 def set_leverage(exchange, symbol, lev):
     try:
@@ -31,13 +40,42 @@ def execute_entry(exchange, res):
         strategy = 'SCALPING'
         s_cfg = CONFIG.get('scalping_setup', {'tp_percentage': 1.5, 'sl_percentage': 1.0})
         tp_pct = s_cfg['tp_percentage'] / 100
-        sl_pct = s_cfg['sl_percentage'] / 100
-        if side == 'buy':
-            tp1 = entry_price * (1 + tp_pct)
-            sl = entry_price * (1 - sl_pct)
-        else:
-            tp1 = entry_price * (1 - tp_pct)
-            sl = entry_price * (1 + sl_pct)
+        
+        # --- ADAPTIVE SL LOGIC (ATR & SWING LOW) ---
+        try:
+            # 1. Fetch data if not provided in res
+            df_local = res.get('df')
+            if df_local is None:
+                bars = exchange.fetch_ohlcv(symbol, tf, limit=60)
+                df_local = pd.DataFrame(bars, columns=['timestamp','open','high','low','close','volume'])
+            
+            # 2. Calculate Adaptive SL using dynamic function
+            sl, s_val, atr = calculate_dynamic_sl(df_local, side, entry_price, lookback=30)
+            
+            # 3. Apply Fallback check (Max 3% from entry)
+            if side == 'buy':
+                tp1 = entry_price * (1 + tp_pct)
+                max_sl = entry_price * 0.97 
+                sl = max(sl, max_sl)
+                logger_msg = f"DEBUG [Scalping]: {symbol} Side: Long, Entry: {entry_price}, SwingLow: {s_val}, ATR: {atr}, Final SL: {sl}"
+            else:
+                tp1 = entry_price * (1 - tp_pct)
+                max_sl = entry_price * 1.03
+                sl = min(sl, max_sl)
+                logger_msg = f"DEBUG [Scalping]: {symbol} Side: Short, Entry: {entry_price}, SwingHigh: {s_val}, ATR: {atr}, Final SL: {sl}"
+            
+            print(logger_msg)
+                
+        except Exception as e:
+            print(f"⚠️ Error calculating adaptive SL for {symbol}: {e}. Falling back to fixed SL.")
+            sl_pct = s_cfg['sl_percentage'] / 100
+            if side == 'buy':
+                tp1 = entry_price * (1 + tp_pct)
+                sl = entry_price * (1 - sl_pct)
+            else:
+                tp1 = entry_price * (1 - tp_pct)
+                sl = entry_price * (1 + sl_pct)
+        
         tp2, tp3 = None, None
     elif tf in ['4h', '1d', '1w']:
         strategy = 'GRID'

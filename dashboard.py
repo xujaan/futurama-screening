@@ -4,7 +4,7 @@ import json
 import warnings
 warnings.filterwarnings('ignore')
 
-from modules.database import get_conn, release_conn, get_active_cex
+from modules.database import get_conn, release_conn, get_active_cex, init_execution_db
 from modules.config_loader import CONFIG
 import plotly.express as px
 
@@ -35,6 +35,10 @@ def _sanitize_config(config_dict):
     return safe_config
 
 def main():
+    try:
+        init_execution_db()
+    except Exception as e:
+        st.error(f"Execution DB sync failed: {e}")
     active_cex = get_active_cex().upper()
     
     st.sidebar.markdown(f"# ⚡ Algo Dashboard")
@@ -98,6 +102,31 @@ def main():
         else:
             st.success("🟢 Bot is on standby. No pending limit orders or setups right now.")
             st.markdown("*(Waiting for the next technical scanning cycle...)*")
+
+        st.markdown("### 🧠 Adaptive Trade Management")
+        mgmt_query = """
+            SELECT symbol, side, strategy, origin_timeframe, status, entry_price, sl_price, tp1,
+                   progress_ratio, peak_progress_ratio, locked_profit_level,
+                   partial_tp_done, early_exit_done, last_management_note, updated_at
+            FROM active_trades
+            WHERE status IN ('PENDING', 'OPEN', 'OPEN_TPS_SET')
+            ORDER BY updated_at DESC, created_at DESC
+        """
+        mgmt_df = load_data(mgmt_query)
+        if not mgmt_df.empty:
+            st.dataframe(
+                mgmt_df.style.format({
+                    'entry_price': '{:.5f}',
+                    'sl_price': '{:.5f}',
+                    'tp1': '{:.5f}',
+                    'progress_ratio': '{:.2f}',
+                    'peak_progress_ratio': '{:.2f}',
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("Belum ada active trade di execution layer.")
 
     elif menu == "📋 Trade History":
         st.title("📋 Trade History (Closed)")
