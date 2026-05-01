@@ -165,6 +165,10 @@ def get_technicals(df):
     macd = ta.macd(df['close'])
     if macd is not None:
         df['MACD_h'] = macd[macd.columns[1]]
+
+    vol_sma = ta.sma(df['volume'], length=20)
+    if vol_sma is not None: df['RVOL'] = df['volume'] / vol_sma
+    else: df['RVOL'] = 0.0
         
     # Squeeze & Regime Indicators
     df['SMA_50'] = ta.sma(df['close'], length=50) if len(df) >= 50 else np.nan
@@ -186,6 +190,10 @@ def get_technicals(df):
         df['KCLe_20_1.5'] = kc[kc.columns[0]]
         df['KCUe_20_1.5'] = kc[kc.columns[2]]
         
+    atr = ta.atr(df['high'], df['low'], df['close'], length=14)
+    if atr is not None: df['ATR_14'] = atr
+    else: df['ATR_14'] = 0.0
+
     # Normalized ATR (NATR) for Volatility Sizing
     natr = ta.natr(df['high'], df['low'], df['close'], length=14)
     if natr is not None: df['NATR_14'] = natr

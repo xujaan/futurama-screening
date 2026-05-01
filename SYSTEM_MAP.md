@@ -9,7 +9,7 @@
   - **Web Dashboard:** Streamlit
   - **Integrasi Eksternal:** Murni Telegram Bot API (Berbahasa Inggris)
 - **Pola Arsitektur:** Implementasi sistem terpisah (Decoupled & Event-driven):
-  1. _Scanner & Analyzer_ berjalan dengan interval Cron di `main.py`. Base CCXT menyesuaikan `active_cex`.
+  1. _Scanner & Analyzer_ berjalan dengan interval Cron di `main.py`. Base CCXT menyesuaikan `active_cex`. Mode manual `HIGH_WR_SCALP` aktif di timeframe kecil untuk entry-zone, partial TP, dan BE rule.
   2. _Live Executor / Rest Polling Engine_ berjalan terus menerus di `auto_trades.py` dengan fallback websocket parsial pada instansiasi tertentu, ditambah algoritma ATR Position Sizing dan ATR Dynamic Trailing Stop.
   3. Modul _Analyzer_ dipecah layer-by-layer (Technicals, Quant, SMC, Pattern). Melibatkan _Multi-Timeframe Confluence_ untuk filter market regime makro.
 
@@ -17,6 +17,9 @@
 
 **1. Alur Scanning & Penghasil Sinyal (Cron-based):**
 `main.py[scan]` (Load Active CEX) -> `main.py[analyze_ticker]` -> `modules.technicals[get_technicals]` -> `modules.patterns[find_pattern]` -> `modules.smc[analyze_smc]` -> `modules.quant[calculate_metrics]` -> `modules.derivative[analyze_derivatives]` -> `modules.bot[send_alert]`(Telegram Only) -> `modules.execution[execute_entry]` (Opsional jika auto_trade menyala via Telegram).
+
+**High-WR Manual Scalp Path:**
+`main.py[analyze_ticker]` -> `modules.high_wr_scalp[analyze_high_wr_scalp]` -> `modules.bot[send_alert]` dengan entry zone, 6 partial TP, dan instruksi move SL to breakeven after TP2. Jalur ini dirancang untuk manual trade; tidak membutuhkan `auto_trades.py`.
 
 **2. Alur Eksekusi Trading & Real-Time Engine:**
 
@@ -40,12 +43,15 @@
 │   ├── bot.service
 │   └── restart_bot.sh
 ├── main.py
+├── scripts/
+│   └── backtest_high_wr_scalp.py
 └── modules/
     ├── __init__.py
     ├── bot.py
     ├── config_loader.py
     ├── database.py
     ├── exchange_manager.py
+    ├── high_wr_scalp.py
     ├── derivatives.py
     ├── execution.py
     ├── patterns.py
@@ -78,14 +84,21 @@
 - **`modules/execution.py`**
   - **Fungsi Utama:** `execute_entry()`, `place_layered_tps()`, `close_position()`
   - **Peran:** Jembatan eksekusi trading generik untuk CCXT terstandardisasi.
+- **`modules/high_wr_scalp.py`**
+  - **Fungsi Utama:** `analyze_high_wr_scalp()`
+  - **Peran:** Generator sinyal manual high win-rate berbasis trend pullback, entry zone ATR, partial targets, dan BE after TP2.
 - **`modules/bot.py`**
   - **Fungsi Utama:** `send_alert()`
   - **Peran:** Formatter notifikasi ke Telegram (Termasuk gambar signal chart dan parameter Quant).
 - _(Algorithmic Models)_: `technicals.py`, `patterns.py`, `smc.py`, `quant.py`, `derivatives.py` tetap mensuplai raw metric data (OB/RSI/RVOL/Funding dll) ke matrix scoring.
+- **`scripts/backtest_high_wr_scalp.py`**
+  - **Fungsi Utama:** Fetch OHLCV publik CCXT atau baca CSV, lalu simulasi entry zone, partial TP, fee/slippage, dan BE rule.
+  - **Peran:** Validasi offline sebelum mode manual dipakai live.
 
 # Data & Config
 
 - **Lokasi Config:** File konfigurasi berbasis JSON tertulis di `config.json` mendukung Multi-CEX key arraying (`api -> bybit/binance/bitget`).
+- **High-WR Config:** `high_wr_scalp` mengatur timeframe `15m`, minimum RVOL/ADX/NATR, entry-zone ATR, SL ATR, target multipliers, split partial close, dan BE trigger.
 - **Skema Data Inti:** Ada 3 tabel utama:
   1. `trades`: Tabel pool sinyal hasil scanner algoritmis (symbol, pattern, exit levels).
   2. `active_trades`: Tabel turunan eksekusi real-time per order ID yang aktif (margin, status open/closed). Relasi: `active_trades.signal_id -> trades.id`.

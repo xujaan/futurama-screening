@@ -19,6 +19,7 @@ from modules.quant import calculate_metrics, check_fakeout
 from modules.derivatives import analyze_derivatives
 from modules.smc import analyze_smc
 from modules.patterns import find_pattern
+from modules.high_wr_scalp import analyze_high_wr_scalp, is_enabled_for_timeframe
 from modules.bot import send_alert, update_status_dashboard, run_fast_update, send_scan_completion
 
 from modules.exchange_manager import get_current_exchange
@@ -59,6 +60,22 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals, macro_cache, tic
         
         # 2. Technicals & Pattern
         df = get_technicals(df)
+
+        high_wr_cfg = CONFIG.get('high_wr_scalp', {})
+        if is_enabled_for_timeframe(timeframe, high_wr_cfg):
+            high_wr_signal = analyze_high_wr_scalp(
+                df.copy(),
+                ticker_info,
+                symbol,
+                timeframe,
+                high_wr_cfg,
+                macro_cache.get(symbol),
+            )
+            if high_wr_signal:
+                high_wr_signal["BTC_Bias"] = btc_bias
+                return high_wr_signal
+            return None
+
         pattern = find_pattern(df)
         side = None
         if pattern: 
@@ -97,6 +114,7 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals, macro_cache, tic
         
         regime = detect_regime(df)
         is_squeezing, squeeze_firing = check_volatility_squeeze(df)
+        tech_reasons = [f"Pattern: {pattern}", div_msg] + smc_reasons
         
         # -- Phase B: MTC Logic --
         if timeframe in ['1w', '1d', '4h']:
@@ -107,7 +125,6 @@ def analyze_ticker(symbol, timeframe, btc_bias, active_signals, macro_cache, tic
             if macro_regime == "Trending Bear" and side == "Long": tech_score -= 1
             if macro_regime: tech_reasons.append(f"MTC Aligned")
             
-        tech_reasons = [f"Pattern: {pattern}", div_msg] + smc_reasons
         if squeeze_firing: 
             tech_score += 2
             tech_reasons.append("💥 Squeeze Firing")

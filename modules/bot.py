@@ -87,21 +87,38 @@ def send_telegram_alert(data, image_path=None):
     # Determine Mode
     tf = data.get('Timeframe')
     mode = "NORMAL"
-    if tf in ['15m', '1h']: mode = "SCALPING"
+    if data.get('Mode') == 'HIGH_WR_SCALP': mode = "HIGH_WR_SCALP"
+    elif tf in ['15m', '1h']: mode = "SCALPING"
     elif tf in ['4h', '1d', '1w']: mode = "GRID"
 
+    is_high_wr = data.get('Mode') == 'HIGH_WR_SCALP' or data.get('Entry_Low') is not None
     text = f"**{emoji} SIGNAL: {data['Symbol']}**\n"
     text += f"🏢 CEX: **[{active_cex}]({cex_url})** | 🛠️ Mode: **{mode}**\n"
     text += f"🧭 **{data['Side']}** | **{data['Timeframe']}** | {data['Pattern']}\n"
     text += f"🕒 `{ts}`\n\n"
     text += f"💵 **Current:** `{format_price(current_price)}`\n"
-    text += f"🎯 **Entry:** `{format_price(data['Entry'])}`\n"
-    text += f"🛑 **Stop Loss:** `{format_price(data['SL'])}`\n"
-    text += f"💰 **Risk/Reward:** 1:{data.get('RR', 0.0)}\n\n"
-    text += f"🏁 **Targets:**\n"
-    text += f"TP1: `{format_price(data['TP1'])}`\n"
-    text += f"TP2: `{format_price(data['TP2'])}`\n"
-    text += f"TP3: `{format_price(data['TP3'])}`\n\n"
+    if is_high_wr:
+        entry_low = data.get('Entry_Low', data['Entry'])
+        entry_high = data.get('Entry_High', data['Entry'])
+        text += f"🎯 **Entry Zone:** `{format_price(entry_low)}` - `{format_price(entry_high)}`\n"
+        text += f"🎯 **Ideal Entry:** `{format_price(data['Entry'])}`\n"
+        text += f"🛑 **Stop Loss:** `{format_price(data['SL'])}`\n"
+        text += f"💰 **Runner R/R:** 1:{data.get('RR', 0.0)}\n\n"
+        text += f"🏁 **Partial Targets:**\n"
+        tp_plan = data.get('TP_Plan') or []
+        for idx, tp in enumerate(tp_plan, start=1):
+            close_pct = float(tp.get('close_ratio', 0)) * 100
+            runner = " (Runner)" if idx == len(tp_plan) else ""
+            text += f"TP{idx}: `{format_price(tp['price'])}` close `{close_pct:.0f}%`{runner}\n"
+        text += f"Rule: Move SL to BE after TP{data.get('Move_SL_To_BE_After_TP', 2)}.\n\n"
+    else:
+        text += f"🎯 **Entry:** `{format_price(data['Entry'])}`\n"
+        text += f"🛑 **Stop Loss:** `{format_price(data['SL'])}`\n"
+        text += f"💰 **Risk/Reward:** 1:{data.get('RR', 0.0)}\n\n"
+        text += f"🏁 **Targets:**\n"
+        text += f"TP1: `{format_price(data['TP1'])}`\n"
+        text += f"TP2: `{format_price(data['TP2'])}`\n"
+        text += f"TP3: `{format_price(data['TP3'])}`\n\n"
     
     text += f"🧮 **Quant & Derivs:**\n"
     text += f"• RVOL: `{rvol:.1f}x` ({rvol_txt})\n"
@@ -121,7 +138,18 @@ def send_telegram_alert(data, image_path=None):
     entry_dist = abs(current_price - data['Entry']) / data['Entry'] * 100
     
     # 1. Price Filter
-    if data['Side'] == 'Long' and current_price > data['TP1']:
+    if is_high_wr:
+        entry_low = float(data.get('Entry_Low', data['Entry']))
+        entry_high = float(data.get('Entry_High', data['Entry']))
+        if entry_low <= current_price <= entry_high:
+            status = "🟢 READY (Inside Entry Zone)"
+        elif data['Side'] == 'Long' and current_price > data['TP1']:
+            status = "🔴 SKIPPED (TP1 Already Reached)"
+        elif data['Side'] == 'Short' and current_price < data['TP1']:
+            status = "🔴 SKIPPED (TP1 Already Reached)"
+        else:
+            status = "🟡 PENDING (Wait Entry Zone)"
+    elif data['Side'] == 'Long' and current_price > data['TP1']:
         status = "🔴 SKIPPED (Target Achieved)"
     elif data['Side'] == 'Short' and current_price < data['TP1']:
         status = "🔴 SKIPPED (Target Achieved)"
@@ -150,9 +178,11 @@ def send_telegram_alert(data, image_path=None):
     if analysis_notes:
         text += "Analisis: " + " ".join(analysis_notes) + "\n"
     
-    if status == "🟡 PENDING (Wait for Retest)":
+    if is_high_wr and status.startswith("🟡"):
+        text += f"Action: Wait zone `{format_price(data.get('Entry_Low', data['Entry']))}` - `{format_price(data.get('Entry_High', data['Entry']))}`. No chase.\n"
+    elif status == "🟡 PENDING (Wait for Retest)":
         text += f"Action: Pasang jaring di `{format_price(data['Entry'])}`. Jangan Market Buy.\n"
-    elif status == "🟢 READY (At/Near Entry)":
+    elif status.startswith("🟢"):
         text += f"Action: Eksekusi bertahap di area `{format_price(data['Entry'])}`.\n"
     
     if rvol > 4.0:
